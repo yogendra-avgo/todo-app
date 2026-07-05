@@ -62,7 +62,7 @@ tasks:
   prod:deploy:
     desc: Deploy the application stack to the PROD cluster context
     cmds:
-      - kubectl --context {{.PROD_CONTEXT}} apply -f manifests.yaml
+      - kubectl --context {{.PROD_CONTEXT}} apply -f k8s/manifests.yaml
       - echo "Waiting for application pods to be ready..."
       - kubectl wait --context {{.PROD_CONTEXT}} --namespace {{.NAMESPACE}} --for=condition=ready pod -l app=todo-web --timeout=90s
 
@@ -85,7 +85,7 @@ tasks:
   prod:clean:
     desc: Completely remove the application stack from the PROD cluster
     cmds:
-      - kubectl delete --context {{.PROD_CONTEXT}} -f manifests.yaml --ignore-not-found=true
+      - kubectl delete --context {{.PROD_CONTEXT}} -f k8s/manifests.yaml --ignore-not-found=true
 
 
   # -----------------------------------------------------------------
@@ -237,7 +237,7 @@ tasks:
   dr:clean:
     desc: Completely remove the application stack from the PROD cluster
     cmds:
-      - kubectl delete --context {{.DR_CONTEXT}} -f manifests.yaml --ignore-not-found=true
+      - kubectl delete --context {{.DR_CONTEXT}} -f k8s/manifests.yaml --ignore-not-found=true
   
   init:prod-manual-storage:
     desc: Setup separate manual credentials and location on PROD
