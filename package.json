@@ -1,0 +1,10 @@
+{
+  "name": "velero-test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@picocss/pico": "^2.0.6",
+    "express": "^4.19.2",
+    "htmx.org": "^1.9.10",
+    "pg": "^8.11.5"
+  }
+}

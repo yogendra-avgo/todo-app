@@ -1,0 +1,316 @@
+version: '3'
+
+dotenv: [.env]
+
+
+tasks:
+
+  # -----------------------------------------------------------------
+  # INNER LOOP TASKS (Local Development & Testing)
+  # -----------------------------------------------------------------
+  
+  dev:up:
+    desc: Start the application locally using docker-compose
+    cmds:
+      - docker compose up --build
+
+  dev:down:
+    desc: Tear down the local docker-compose environment
+    cmds:
+      - docker compose down -v
+
+  dev:reboot:
+    desc: Reboot dev instanace
+    cmds:
+      - task: dev:down 
+      - task: dev:up
+
+  dev:build:
+    desc: Build the production container image with the Broadcom NPM proxy
+    cmds:
+      - |
+        docker build \
+          --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
+          -t {{.FULL_IMAGE}} .
+
+  # -----------------------------------------------------------------
+  # OUTER LOOP TASKS (CI/CD, Push, and Cluster Initialization)
+  # -----------------------------------------------------------------
+
+  dev:push:
+    desc: Push the container image to the internal Harbor registry
+    deps: [dev:build]
+    cmds:
+      - docker push {{.FULL_IMAGE}}
+
+  dev:show-data:
+    desc: Show data 
+    cmds:
+      -  docker compose exec db psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'select * from todos;' todo 
+
+  dev:clean-data:
+    desc: Clean data
+    cmds:
+      - docker compose exec db  psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'delete from todos;' todo 
+      - task: dev:show-data
+
+  dev:db-shell:
+    desc: DB Shell
+    cmds:
+      -  docker compose exec db psql -a -v HISTFILE=/tmp/pghist -U postgres todo 
+
+  prod:deploy:
+    desc: Deploy the application stack to the PROD cluster context
+    cmds:
+      - kubectl --context {{.PROD_CONTEXT}} apply -f manifests.yaml
+      - echo "Waiting for application pods to be ready..."
+      - kubectl wait --context {{.PROD_CONTEXT}} --namespace {{.NAMESPACE}} --for=condition=ready pod -l app=todo-web --timeout=90s
+
+  prod:show-data:
+    desc:  Show data in production
+    cmds:
+      - kubectl exec -it --context {{.PROD_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'select * from todos;' todo 
+
+  prod:db-shell:
+    desc:  Show data in production
+    cmds:
+      - kubectl exec -it --context {{.PROD_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres todo 
+
+  prod:clean-data:
+    desc: Clean data
+    cmds:
+      - kubectl exec -it --context {{.PROD_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'delete from todos;' todo 
+      - task: prod:show-data
+  
+  prod:clean:
+    desc: Completely remove the application stack from the PROD cluster
+    cmds:
+      - kubectl delete --context {{.PROD_CONTEXT}} -f manifests.yaml --ignore-not-found=true
+
+
+  # -----------------------------------------------------------------
+  # PRODUCTION OPERATION TASKS (Velero Backup)
+  # -----------------------------------------------------------------
+
+  prod:backup:
+    desc: Trigger a Velero File-System Backup (FSB) on the PROD cluster
+    cmds:
+      - echo "Removing old backup metadata if it exists..."
+      - velero backup delete {{.BACKUP_NAME}} --kubecontext {{.PROD_CONTEXT}} --confirm || true
+      - echo "Waiting for old backup object to be fully deleted from etcd..."
+      - kubectl --context {{.PROD_CONTEXT}} wait -n velero --for=delete backup/{{.BACKUP_NAME}} --timeout=60s || true
+      - echo "Creating fresh backup..."
+      - |
+        velero backup create {{.BACKUP_NAME}} \
+          --kubecontext {{.PROD_CONTEXT}} \
+          --include-namespaces {{.NAMESPACE}} \
+          --storage-location {{.STORAGE_LOCATION}} \
+          --default-volumes-to-fs-backup=true
+      - echo "Backup pipeline initiated. Check status with 'task prod:backup-status'"
+
+  prod:backup-list:
+    desc: Get list of backups from PROD manual location
+    cmds:
+      - velero backup get --kubecontext {{.PROD_CONTEXT}} -l velero.io/storage-location={{.STORAGE_LOCATION}}
+
+  prod:backup-status:
+    desc: Check the live status of the Velero backup progress on PROD
+    cmds:
+      - velero backup describe --kubecontext {{.PROD_CONTEXT}} {{.BACKUP_NAME}}
+  
+  prod:backup-delete:
+    desc: Delete the backup execution and its matching records inside S3 from PROD
+    cmds:
+      - echo "Deleting backup {{.BACKUP_NAME}} from PROD cluster and S3..."
+      - velero backup delete {{.BACKUP_NAME}} --kubecontext {{.PROD_CONTEXT}} --confirm
+
+  prod:logs:
+    desc: Stream container logs for the application web pod on PROD
+    cmds:
+      - kubectl --context {{.PROD_CONTEXT}} logs -n {{.NAMESPACE}} -l app=todo-web --tail=50 -f
+
+  prod:db-logs:
+    desc: Stream container logs for the PostgreSQL database pod on PROD
+    cmds:
+      - kubectl --context {{.PROD_CONTEXT}} logs -n {{.NAMESPACE}} -l app=todo-db --tail=50 -f
+
+  prod:verify:
+    desc: Display application endpoints and verification resources on PROD
+    cmds:
+      - echo "=== PROD Deployments ==="
+      - kubectl --context {{.PROD_CONTEXT}} get deployments -n {{.NAMESPACE}}
+      - echo "=== PROD Persistent Volume Claims ==="
+      - kubectl --context {{.PROD_CONTEXT}} get pvc -n {{.NAMESPACE}}
+      - echo "=== PROD LoadBalancer Target URI ==="
+      - kubectl --context {{.PROD_CONTEXT}} get svc todo-web-svc -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      - echo ""
+
+  # -----------------------------------------------------------------
+  # DR OPERATION TASKS (Velero Sync & Restore)
+  # -----------------------------------------------------------------
+
+  dr:backup-sync:
+    desc: Force DR Velero to scan the shared manual S3 bucket for new prod backups
+    cmds:
+      - echo "Refreshing storage cache on manual target location..."
+      - kubectl --context {{.DR_CONTEXT}} -n velero patch backupstoragelocation {{.STORAGE_LOCATION}} --type merge -p '{"spec":{"backupSyncPeriod":"1m"}}'
+      - kubectl --context {{.DR_CONTEXT}} -n velero rollout restart deployment velero
+      - kubectl --context {{.DR_CONTEXT}} -n velero rollout status deployment velero --timeout=60s
+      - echo "Manual location cache synced."
+
+  dr:backup-list:
+    desc: Get list of visible backups on DR manual location
+    cmds:
+      - velero backup get --kubecontext {{.DR_CONTEXT}} -l velero.io/storage-location={{.STORAGE_LOCATION}}
+
+  dr:backup-status:
+    desc: Check the live status of the backup from the DR cluster context
+    cmds:
+      - velero backup describe --kubecontext {{.DR_CONTEXT}} {{.BACKUP_NAME}}
+
+  dr:restore:
+    desc: Trigger the Velero recovery workflow on the DR cluster using the manual backup
+    cmds:
+      - |
+        velero restore create --kubecontext {{.DR_CONTEXT}} \
+          --from-backup {{.BACKUP_NAME}}
+      - echo "Restore operation initiated. Check logs with 'task dr:restore-logs'"
+
+  dr:backup-delete:
+    desc: Delete the backup tracker from the DR cluster context (Also clears out the S3 data)
+    cmds:
+      - echo "Deleting backup {{.BACKUP_NAME}} from DR perspective..."
+      - velero backup delete {{.BACKUP_NAME}} --kubecontext {{.DR_CONTEXT}} --confirm
+
+  dr:restore-delete:
+    desc: Clear out old Velero restore history logs/custom resources from the DR cluster etcd
+    cmds:
+      - echo "Clearing restore engine custom resources matching {{.BACKUP_NAME}}..."
+      - |
+        RESTORE_NAME=$(velero restore get --kubecontext {{.DR_CONTEXT}} | grep {{.BACKUP_NAME}} | awk '{print $1}' | head -n 1)
+        if [ -n "$RESTORE_NAME" ]; then
+          velero restore delete $RESTORE_NAME --kubecontext {{.DR_CONTEXT}} --confirm
+        else
+          echo "No active restore custom resources found to delete."
+        fi
+  dr:restore-logs:
+    desc: Stream active Velero restore execution logs from the DR cluster
+    cmds:
+      - velero restore logs --kubecontext {{.DR_CONTEXT}} $(velero restore get --kubecontext {{.DR_CONTEXT}} | grep {{.BACKUP_NAME}} | awk '{print $1}' | head -n 1)
+
+  dr:logs:
+    desc: Stream container logs for the application web pod on DR (Post-Restore)
+    cmds:
+      - kubectl --context {{.DR_CONTEXT}} logs -n {{.NAMESPACE}} -l app=todo-web --tail=50 -f
+
+  dr:db-logs:
+    desc: Stream container logs for the PostgreSQL database pod on DR (Post-Restore)
+    cmds:
+      - kubectl --context {{.DR_CONTEXT}} logs -n {{.NAMESPACE}} -l app=todo-db --tail=50 -f
+      
+  dr:verify:
+    desc: Display application endpoints and verification resources on DR
+    cmds:
+      - echo "=== DR Deployments ==="
+      - kubectl --context {{.DR_CONTEXT}} get deployments -n {{.NAMESPACE}}
+      - echo "=== DR Persistent Volume Claims ==="
+      - kubectl --context {{.DR_CONTEXT}} get pvc -n {{.NAMESPACE}}
+      - echo "=== DR LoadBalancer Target URI ==="
+      - kubectl --context {{.DR_CONTEXT}} get svc todo-web-svc -n {{.NAMESPACE}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      - echo ""
+  dr:show-data:
+    desc:  Show data in production
+    cmds:
+      - kubectl exec -it --context {{.DR_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'select * from todos;' todo 
+
+  dr:db-shell:
+    desc:  Show data in production
+    cmds:
+      - kubectl exec -it --context {{.DR_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres todo 
+
+  dr:clean-data:
+    desc: Clean data
+    cmds:
+      - kubectl exec -it --context {{.DR_CONTEXT}} --namespace {{.NAMESPACE}} deploy/todo-db -- psql -a -v HISTFILE=/tmp/pghist -U postgres -c 'delete from todos;' todo 
+      - task: dr:show-data
+  
+  dr:clean:
+    desc: Completely remove the application stack from the PROD cluster
+    cmds:
+      - kubectl delete --context {{.DR_CONTEXT}} -f manifests.yaml --ignore-not-found=true
+  
+  init:prod-manual-storage:
+    desc: Setup separate manual credentials and location on PROD
+    cmds:
+      - echo "Generating temporary manual credentials file..."
+      - |
+        cat <<EOF > .credentials-bsl-manual
+        [default]
+        aws_access_key_id = {{.AWS_ACCESS_KEY_ID}}
+        aws_secret_access_key = {{.AWS_SECRET_ACCESS_KEY}}
+        EOF
+      - echo "Creating secret 'yogendra-me-aws-manual'..."
+      - kubectl --context {{.PROD_CONTEXT}} delete secret yogendra-me-aws-manual -n velero --ignore-not-found=true
+      - |
+        kubectl --context {{.PROD_CONTEXT}} create secret generic yogendra-me-aws-manual \
+          -n velero \
+          --from-file=bsl=.credentials-bsl-manual
+      - rm -f .credentials-bsl-manual
+      - echo "Creating BackupStorageLocation 's3-manual'..."
+      - |
+        cat <<EOF | kubectl --context {{.PROD_CONTEXT}} apply -f -
+        apiVersion: velero.io/v1
+        kind: BackupStorageLocation
+        metadata:
+          name: {{.STORAGE_LOCATION}}
+          namespace: velero
+        spec:
+          provider: aws
+          config:
+            region: {{.REGION}}
+            s3Url: https://s3.us-west-1.amazonaws.com
+          credential:
+            name: yogendra-me-aws-manual
+            key: bsl
+          objectStorage:
+            bucket: {{.BUCKET_NAME}}
+            prefix: "manual-backups/"
+        EOF
+
+  init:dr-manual-storage:
+    desc: Setup separate manual credentials and location on DR
+    cmds:
+      - echo "Generating temporary manual credentials file..."
+      - |
+        cat <<EOF > .credentials-bsl-manual
+        [default]
+        aws_access_key_id = {{.AWS_ACCESS_KEY_ID}}
+        aws_secret_access_key = {{.AWS_SECRET_ACCESS_KEY}}
+        EOF
+      - echo "Creating secret 'yogendra-me-aws-manual'..."
+      - kubectl --context {{.DR_CONTEXT}} delete secret yogendra-me-aws-manual -n velero --ignore-not-found=true
+      - |
+        kubectl --context {{.DR_CONTEXT}} create secret generic yogendra-me-aws-manual \
+          -n velero \
+          --from-file=bsl=.credentials-bsl-manual
+      - rm -f .credentials-bsl-manual
+      - echo "Creating BackupStorageLocation 's3-manual'..."
+      - |
+        cat <<EOF | kubectl --context {{.DR_CONTEXT}} apply -f -
+        apiVersion: velero.io/v1
+        kind: BackupStorageLocation
+        metadata:
+          name: {{.STORAGE_LOCATION}}
+          namespace: velero
+        spec:
+          provider: aws
+          config:
+            region: {{.REGION}}
+            s3Url: https://s3.us-west-1.amazonaws.com
+          credential:
+            name: yogendra-me-aws-manual
+            key: bsl
+          objectStorage:
+            bucket: {{.BUCKET_NAME}}
+            prefix: "manual-backups/"
+        EOF
