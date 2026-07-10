@@ -1,0 +1,8 @@
+apiVersion: argocd-service.vsphere.vmware.com/v1alpha1
+kind: ArgoCD
+metadata:
+  name: yr-demos-argocd
+  namespace: yr-demos-7wcpt
+spec:
+  version: 3.0.19+vmware.1-vks.1
+  
