@@ -1,0 +1,419 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: todo-app
+  labels:
+    istio-injection: enabled
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-pvc
+  namespace: todo-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: wkld01-cluster01-optimal-datastore-default-policy-autoraid-latebinding
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-db
+  namespace: todo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-db
+  template:
+    metadata:
+      labels:
+        app: todo-db
+      annotations:
+        backup.velero.io/backup-volumes: db-storage
+    spec:
+      imagePullSecrets:
+        - name: harbor-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: harbor.mgmt.vks.lab/docker.io/library/postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: todo
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          # Database Health Diagnostics
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - todo
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - todo
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: db-storage
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: pg-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-db-svc
+  namespace: todo-app
+  label:
+    app: todo-db
+spec:
+  ports:
+    - port: 5432
+      
+  selector:
+    app: todo-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-web
+  namespace: todo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-web
+  template:
+    metadata:
+      labels:
+        app: todo-web
+    spec:
+      imagePullSecrets:
+        - name: harbor-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: web
+          image: harbor.mgmt.vks.lab/demo/velero-test-app:latest
+          env:
+            - name: DATABASE_URL
+              value: postgresql://postgres:postgres@todo-db-svc:5432/todo
+          ports:
+            - containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          # Web Server Frontend Diagnostics
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-web-svc
+  namespace: todo-app
+  label:
+    app: todo-db
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: web
+  selector:
+    app: todo-web
+
+
+---
+# ============================================================
+# PodMonitor Example — Custom Application
+# ============================================================
+#
+# Use a PodMonitor instead of a ServiceMonitor when:
+#   - Your app has NO Kubernetes Service (e.g. batch Jobs, CronJobs)
+#   - You want to scrape EACH pod replica individually at their pod IP
+#     (ServiceMonitor goes through kube-proxy load balancing)
+#   - You want to scrape Istio sidecar (envoy) proxy metrics separately
+#   - You want to scrape multiple containers in a pod (e.g., sidecar + main)
+#   - Pod IPs change frequently and you want direct pod-level visibility
+#
+# Key difference: PodMonitor uses `podMetricsEndpoints` (targets pod ports
+# directly), while ServiceMonitor uses `endpoints` (targets Service ports).
+#
+# Prerequisites:
+#   - The pod must expose a named containerPort (e.g., "metrics")
+#   - The Prometheus CR must have podMonitorSelector: {} and
+#     podMonitorNamespaceSelector: {} to discover this monitor
+#
+# ============================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: my-batch-app
+  # PodMonitor can live in any namespace — our Prometheus CR watches all
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: my-batch-app
+spec:
+  # Select pods by their labels — no Service required
+  selector:
+    matchLabels:
+      app: my-batch-app
+
+  # Which namespaces to look for matching pods
+  namespaceSelector:
+    matchNames:
+      - todo-app
+
+  # Use podMetricsEndpoints (NOT endpoints — that is for ServiceMonitor)
+  podMetricsEndpoints:
+    - # Must match a named containerPort on the pod spec
+      port: metrics
+
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+
+      # ---- Optional: scrape a specific container in the pod ----
+      # Useful when a pod has multiple containers (e.g., app + istio-proxy)
+      # container: my-batch-app
+
+      # Relabeling — add cluster label and use pod name as instance
+      relabelings:
+        - targetLabel: cluster
+          replacement: vks-cluster-1
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: instance
+        # Expose pod phase as a label for filtering in dashboards
+        - sourceLabels: [__meta_kubernetes_pod_phase]
+          targetLabel: pod_phase
+
+      # Metric relabeling — drop noisy metrics after scrape
+      metricRelabelings:
+        - action: drop
+          regex: go_(gc_duration_seconds.*|goroutines|memstats.*)
+          sourceLabels: [__name__]
+
+---
+# ============================================================
+# PodMonitor for Istio Envoy Sidecar Metrics
+# ============================================================
+#
+# Istio injects an envoy proxy sidecar into every pod in an
+# Istio-enabled namespace. The sidecar exposes Prometheus metrics
+# on port 15090 at /stats/prometheus. There is no Service for this
+# port — PodMonitor is the right tool.
+#
+# To use this, label the namespace with istio-injection=enabled
+# and apply this PodMonitor to scrape the envoy sidecars.
+#
+# ============================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-envoy-sidecar
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: istio-envoy-sidecar
+spec:
+  # Select all pods that have an istio sidecar injected
+  selector:
+    matchLabels:
+      security.istio.io/tlsMode: istio
+
+  # Scrape from all namespaces (cluster-wide envoy telemetry)
+  namespaceSelector:
+    any: true
+
+  podMetricsEndpoints:
+    - port: http-envoy-prom
+      path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - sourceLabels: [__meta_kubernetes_pod_label_app]
+          targetLabel: app
+      metricRelabelings:
+        # Keep only the most useful Istio metrics to control cardinality
+        - action: keep
+          regex: istio_requests_total|istio_request_duration_milliseconds.*|istio_request_bytes.*|istio_response_bytes.*|istio_tcp_.*|envoy_cluster_upstream_rq.*|envoy_server_.*
+          sourceLabels: [__name__]
+---
+# ============================================================
+# ServiceMonitor Example — Custom Application
+# ============================================================
+#
+# Use a ServiceMonitor when your application:
+#   - Has a stable Kubernetes Service
+#   - Exposes a Prometheus /metrics endpoint on a named port
+#   - Is a long-running service (Deployment, StatefulSet)
+#
+# Prerequisites for this to work:
+#   1. Your app's Service must have a named port (e.g., "metrics")
+#   2. The Prometheus CR watches all namespaces (serviceMonitorNamespaceSelector: {})
+#      so no special labels are required on the ServiceMonitor itself
+#
+# ============================================================
+#
+# Example Application Service (what your app should look like):
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: todo-web
+#   namespace: todo-app
+#   labels:
+#     app: todo-web          # <-- must match ServiceMonitor selector below
+# spec:
+#   selector:
+#     app: todo-web
+#   ports:
+#     - name: metrics      # <-- named port, referenced in ServiceMonitor
+#       port: 8080
+#       targetPort: 8080
+#
+# ============================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: todo-web
+  # The ServiceMonitor can live in any namespace — our Prometheus CR
+  # watches all namespaces via serviceMonitorNamespaceSelector: {}
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: todo-web
+spec:
+  # Select the Service(s) to scrape by their labels
+  selector:
+    matchLabels:
+      app: todo-web
+
+  # Which namespace(s) to look for the matching Services
+  # Use matchNames for specific namespaces, or omit for all namespaces
+  namespaceSelector:
+    matchNames:
+      - todo-app
+
+  endpoints:
+    - # Must match a named port on the Service
+      port: metrics
+
+      # Scrape path — default is /metrics
+      path: /metrics
+
+      # How often to scrape. Defaults to the Prometheus global scrapeInterval.
+      interval: 30s
+
+      # Scrape timeout (must be <= interval)
+      scrapeTimeout: 10s
+
+      # Use https if your app exposes TLS on the metrics endpoint
+      scheme: http
+
+      # ---- Optional: TLS config for HTTPS metrics endpoints ----
+      # tlsConfig:
+      #   caFile: /etc/prometheus/secrets/todo-web-tls/ca.crt
+      #   certFile: /etc/prometheus/secrets/todo-web-tls/tls.crt
+      #   keyFile: /etc/prometheus/secrets/todo-web-tls/tls.key
+      #   insecureSkipVerify: false
+
+      # ---- Optional: Authorization header for protected /metrics ----
+      # authorization:
+      #   type: Bearer
+      #   credentials:
+      #     name: todo-web-metrics-token
+      #     key: token
+
+      # Relabeling — runs BEFORE the scrape, reshapes target labels
+      relabelings:
+        # Add a 'cluster' label to every time series from this target
+        - targetLabel: cluster
+          replacement: vks-cluster-1
+        # Use the pod name as the instance label instead of the IP
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: instance
+
+      # Metric relabeling — runs AFTER the scrape, on individual metrics
+      metricRelabelings:
+        # Drop internal Go runtime metrics to reduce cardinality
+        - action: drop
+          regex: go_(gc_duration_seconds.*|goroutines|memstats.*)
+          sourceLabels: [__name__]
+        # Drop metrics with a specific label value you don't care about
+        # - action: drop
+        #   regex: (debug|test)
+        #   sourceLabels: [environment]

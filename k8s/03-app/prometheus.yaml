@@ -1,0 +1,635 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tanzu-system-monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: tanzu-system-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  # Core resources needed to discover scrape targets
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+      - namespaces
+      - configmaps
+    verbs: ["get", "list", "watch"]
+  # Non-resource URLs for scraping metrics endpoints
+  - nonResourceURLs:
+      - /metrics
+      - /healthz
+      - /readyz
+      - /livez
+      - /metrics/cadvisor
+      - /metrics/resource
+      - /metrics/probes
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: tanzu-system-monitoring
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+
+  serviceAccountName: prometheus
+  # Watch ALL ServiceMonitors and PodMonitors across ALL namespaces.
+  # This is the recommended approach when there is a single Prometheus
+  # instance serving the whole cluster.
+  serviceMonitorSelector: {}
+  serviceMonitorNamespaceSelector: {}
+  podMonitorSelector: {}
+  podMonitorNamespaceSelector: {}
+
+  # Watch all PrometheusRule objects cluster-wide for alerting rules
+  ruleSelector: {}
+  ruleNamespaceSelector: {}
+
+  # Watch all ScrapeConfig objects cluster-wide
+  scrapeConfigSelector: {}
+  scrapeConfigNamespaceSelector: {}
+
+  # Prometheus version — match what the operator supports
+  # version: v3.5.1
+
+  # Single replica; increase to 2 for HA with shared remote storage
+  replicas: 1
+
+  # Retain 15 days of data (adjust based on PVC size)
+  retention: "5d"
+
+  # Log level — set to info for production, debug for troubleshooting
+  logLevel: info
+  logFormat: logfmt
+
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+
+  # Persistent storage using the VKS vSAN default storage class
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: wkld01-cluster01-optimal-datastore-default-policy-autoraid-latebinding
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 2000
+
+  # Run only on Linux nodes
+  nodeSelector:
+    kubernetes.io/os: linux
+
+  # Global scrape configuration defaults
+  scrapeInterval: 30s
+  evaluationInterval: 30s
+
+  # Enable OTLP receiver so OTel collectors can remote-write metrics
+  enableOTLPReceiver: true
+  enableRemoteWriteReceiver: true
+
+  # Enable the admin API (destructive endpoints: delete series, snapshot, etc.)
+  # Access is restricted to the admin-api credential via nginx — see 09-nginx-auth-proxy.yaml
+  enableAdminAPI: true
+
+  # Expose the Prometheus web UI and API
+  portName: web
+
+---
+## Headlamp RBAC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-metrics-reader
+rules:
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-metrics-reader-binding
+subjects:
+- kind: ServiceAccount
+  name: headlamp
+  namespace: headlamp
+roleRef:
+  kind: ClusterRole
+  name: headlamp-metrics-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# node-exporter ServiceMonitor (VKS addon-managed)
+# The VKS addon deploys node-exporter as Service "prometheus-node-exporter"
+# in tanzu-system-monitoring with labels: app=prometheus, component=node-exporter
+# Port name "metrics" maps to port 9100.
+#
+# If you deployed node-exporter yourself with standard labels
+# (app.kubernetes.io/name=node-exporter), update the selector below.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-exporter-addon
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: node-exporter
+    app.kubernetes.io/component: metrics
+spec:
+  namespaceSelector:
+    matchNames:
+      - tanzu-system-monitoring
+  selector:
+    matchLabels:
+      app: prometheus
+      component: node-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      honorLabels: true
+
+---
+# kubelet cAdvisor ServiceMonitor — container resource metrics
+# Same kubelet Service as kubelet.yaml, different path: /metrics/cadvisor
+# Provides per-container CPU, memory, network, and filesystem metrics.
+# Requires kubelet.yaml (or the kubelet Service) to already exist.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet-cadvisor
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: kubelet-cadvisor
+    app.kubernetes.io/component: node
+spec:
+  jobLabel: k8s-app
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kubelet
+  endpoints:
+    - port: https-metrics
+      path: /metrics/cadvisor
+      scheme: https
+      tlsConfig:
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      interval: 30s
+      honorLabels: true
+      # Drop high-cardinality cadvisor metrics that are rarely useful
+      metricRelabelings:
+        - action: drop
+          regex: container_cpu_(cfs_throttled_seconds_total|load_average_10s|system_seconds_total|user_seconds_total)
+          sourceLabels: [__name__]
+        - action: drop
+          regex: container_fs_(io_current|io_time_seconds_total|io_time_weighted_seconds_total|reads_merged_total|sector_reads_total|sector_writes_total|writes_merged_total)
+          sourceLabels: [__name__]
+        - action: drop
+          regex: container_memory_(mapped_file|swap)
+          sourceLabels: [__name__]
+        - action: drop
+          regex: container_(file_descriptors|tasks_state|threads_max)
+          sourceLabels: [__name__]
+        - action: drop
+          regex: container_spec.*
+          sourceLabels: [__name__]
+        # Drop empty container entries (pause containers)
+        - action: drop
+          regex: .+
+          sourceLabels: [container]
+          targetLabel: __tmp_container
+        - action: drop
+          regex: ""
+          sourceLabels: [__tmp_container]
+---
+# kube-state-metrics ServiceMonitor (VKS addon-managed)
+# The VKS addon deploys kube-state-metrics as Service "prometheus-kube-state-metrics"
+# in tanzu-system-monitoring with labels: app=prometheus, component=kube-state-metrics
+# Port name "http" maps to container port 8080.
+#
+# If you deployed kube-state-metrics yourself with standard labels
+# (app.kubernetes.io/name=kube-state-metrics), update the selector below.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kube-state-metrics-addon
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/component: metrics
+spec:
+  namespaceSelector:
+    matchNames:
+      - tanzu-system-monitoring
+  selector:
+    matchLabels:
+      app: prometheus
+      component: kube-state-metrics
+  endpoints:
+    - port: http
+      interval: 30s
+      honorLabels: true
+      metricRelabelings:
+        - action: drop
+          regex: kube_endpoint_address_not_ready|kube_endpoint_address_available
+          sourceLabels: [__name__]
+
+---
+# Antrea ServiceMonitors — controller and agent
+#
+# Antrea does not create dedicated metrics Services by default.
+# This file creates two headless Services in kube-system and the
+# corresponding ServiceMonitors. Both use HTTPS with bearer token auth.
+#
+#   antrea-controller: port 10349, 1 pod (Deployment)
+#   antrea-agent:      port 10350, 1 pod per node (DaemonSet)
+
+# ── Antrea Controller ─────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: antrea-controller-metrics
+  namespace: kube-system
+  labels:
+    app: antrea
+    component: antrea-controller
+    app.kubernetes.io/name: antrea-controller
+spec:
+  clusterIP: None
+  selector:
+    app: antrea
+    component: antrea-controller
+  ports:
+    - name: https-metrics
+      port: 10349
+      targetPort: 10349
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: antrea-controller
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: antrea-controller
+    app.kubernetes.io/component: networking
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app: antrea
+      component: antrea-controller
+      app.kubernetes.io/name: antrea-controller
+  endpoints:
+    - port: https-metrics
+      scheme: https
+      tlsConfig:
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      interval: 30s
+
+---
+# ── Antrea Agent ──────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: antrea-agent-metrics
+  namespace: kube-system
+  labels:
+    app: antrea
+    component: antrea-agent
+    app.kubernetes.io/name: antrea-agent
+spec:
+  clusterIP: None
+  selector:
+    app: antrea
+    component: antrea-agent
+  ports:
+    - name: https-metrics
+      port: 10350
+      targetPort: 10350
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: antrea-agent
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: antrea-agent
+    app.kubernetes.io/component: networking
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app: antrea
+      component: antrea-agent
+      app.kubernetes.io/name: antrea-agent
+  endpoints:
+    - port: https-metrics
+      scheme: https
+      tlsConfig:
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      interval: 30s
+      honorLabels: true
+---
+# cert-manager ServiceMonitors — controller, cainjector, webhook
+#
+# All three components expose /metrics on port 9402 over plain HTTP.
+# The Services are created by the cert-manager addon in the cert-manager namespace.
+# Port names differ per component (verified against VKS addon v1.19.4):
+#   cert-manager controller  : port name "tcp-prometheus-servicemonitor"
+#   cert-manager-cainjector  : port name "http-metrics"
+#   cert-manager-webhook     : port name "metrics"
+
+# ── cert-manager controller ───────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: certificates
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: tcp-prometheus-servicemonitor
+      interval: 30s
+      scheme: http
+
+---
+# ── cert-manager cainjector ───────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager-cainjector
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: cert-manager-cainjector
+    app.kubernetes.io/component: certificates
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cainjector
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      scheme: http
+
+---
+# ── cert-manager webhook ──────────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager-webhook
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: cert-manager-webhook
+    app.kubernetes.io/component: certificates
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scheme: http
+---
+# CoreDNS ServiceMonitor
+# kube-dns Service in kube-system exposes port 9153 (named "metrics") for Prometheus.
+# Standard on all VKS / upstream Kubernetes clusters.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: coredns
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: coredns
+    app.kubernetes.io/component: dns
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scheme: http
+
+---
+# Istio ServiceMonitors — istiod, ingress gateway, ztunnel
+#
+# Verified endpoints (VKS Istio ambient mesh):
+#   istiod              : port 15014 (http-monitoring) — HTTP, existing Service
+#   istio-ingressgateway: port 15090 (http-envoy-prom) — Envoy Prometheus stats,
+#                         pod-only port (not on the LoadBalancer Service)
+#   ztunnel             : port 15020 (ztunnel-stats)   — HTTP, DaemonSet per node,
+#                         pod-only port
+#
+# This file creates headless Services for ingress-gateway and ztunnel so
+# the ServiceMonitors can discover their pods.
+
+# ── istiod ────────────────────────────────────────────────────
+# The addon-created "istiod" Service already exposes port 15014
+# (named "http-monitoring") — no additional Service needed.
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istiod
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: istiod
+    app.kubernetes.io/component: service-mesh
+spec:
+  namespaceSelector:
+    matchNames:
+      - istio-system
+  selector:
+    matchLabels:
+      app: istiod
+  endpoints:
+    - port: http-monitoring
+      interval: 30s
+      scheme: http
+
+---
+# ── istio-ingressgateway ──────────────────────────────────────
+# The LoadBalancer Service does not expose port 15090. A headless
+# Service is required to reach the Envoy Prometheus stats endpoint.
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingressgateway-metrics
+  namespace: istio-system
+  labels:
+    app: istio-ingressgateway
+    app.kubernetes.io/name: istio-ingressgateway-metrics
+spec:
+  clusterIP: None
+  selector:
+    app: istio-ingressgateway
+  ports:
+    - name: http-envoy-prom
+      port: 15090
+      targetPort: 15090
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istio-ingressgateway
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: istio-ingressgateway
+    app.kubernetes.io/component: service-mesh
+spec:
+  namespaceSelector:
+    matchNames:
+      - istio-system
+  selector:
+    matchLabels:
+      app: istio-ingressgateway
+      app.kubernetes.io/name: istio-ingressgateway-metrics
+  endpoints:
+    - port: http-envoy-prom
+      path: /stats/prometheus
+      interval: 30s
+      scheme: http
+---
+# kubelet ServiceMonitor — node stats metrics
+# The kubelet headless Service is pre-created by VKS in kube-system
+# (label: k8s-app=kubelet). Scrapes /metrics for kubelet operational stats.
+#
+# If the Service does not exist on your cluster, apply:
+#   kubectl create service clusterip kubelet --tcp=10250:10250 -n kube-system --dry-run=client -o yaml \
+#     | kubectl label --local -f - k8s-app=kubelet -o yaml | kubectl apply -f -
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: kubelet
+    app.kubernetes.io/component: node
+spec:
+  jobLabel: k8s-app
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kubelet
+  endpoints:
+    - port: https-metrics
+      scheme: https
+      tlsConfig:
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      interval: 30s
+      honorLabels: true
+      relabelings:
+        - action: replace
+          sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+---
+# vSphere CSI Controller ServiceMonitor
+# The VKS addon creates Service "vsphere-csi-controller" in vmware-system-csi
+# with two named ports:
+#   ctlr   (2112) — vsphere-csi-controller process metrics
+#   syncer (2113) — metadata syncer process metrics
+# Both endpoints are plain HTTP, no TLS.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vsphere-csi-controller
+  namespace: tanzu-system-monitoring
+  labels:
+    app.kubernetes.io/name: vsphere-csi-controller
+    app.kubernetes.io/component: storage
+spec:
+  namespaceSelector:
+    matchNames:
+      - vmware-system-csi
+  selector:
+    matchLabels:
+      app: vsphere-csi-controller
+  endpoints:
+    - port: ctlr
+      interval: 30s
+      scheme: http
+    - port: syncer
+      interval: 30s
+      scheme: http
