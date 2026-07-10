@@ -33,6 +33,23 @@ tasks:
           --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
           -t {{.FULL_IMAGE}} .
 
+  dev:update-locust-script:
+    desc: Update ConfigMpa / locust-script
+    cmds:
+    - |
+      HEADER="# Generated from locust/locustfile.py — do not hand-edit the
+      # locustfile.py contents here, run update-locust-configmap.sh instead."
+
+      {
+        echo "$HEADER"
+        kubectl create configmap locust-scripts \
+          --from-file=locustfile.py=../../locust/locustfile.py \
+          --namespace=todo-app \
+          --dry-run=client -o yaml
+      } > k8s/04-app/locust-scripts.yaml locust-configmap.yaml
+
+      echo "Wrote  k8s/04-app/locust-scripts.yaml"
+
   # -----------------------------------------------------------------
   # OUTER LOOP TASKS (CI/CD, Push, and Cluster Initialization)
   # -----------------------------------------------------------------

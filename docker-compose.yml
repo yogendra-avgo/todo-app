@@ -32,10 +32,27 @@ services:
         # Blocks web execution until the db healthcheck passes successfully
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  locust:
+    build:
+      context: ./locust
+    command:
+      - "-f"
+      - "/mnt/locust/locustfile.py"
+      - "--host=http://web:3000"
+      - "--web-host=0.0.0.0"
+      - "--autostart"
+      - "--users=10"
+      - "--spawn-rate=2"
+    ports:
+      - "8089:8089"
+    depends_on:
+      web:
+        condition: service_healthy
 
 volumes:
   pgdata:

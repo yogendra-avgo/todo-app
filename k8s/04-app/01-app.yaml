@@ -144,6 +144,8 @@ spec:
           env:
             - name: DATABASE_URL
               value: postgresql://postgres:postgres@todo-db-svc:5432/todo
+            - name: BASE_PATH
+              value: /app
           ports:
             - containerPort: 3000
           securityContext:
@@ -160,16 +162,16 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
-          # Web Server Frontend Diagnostics
+          # Web Server Frontend Diagnostics — unprefixed /healthz, independent of BASE_PATH
           livenessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 3000
             initialDelaySeconds: 3
             periodSeconds: 5
@@ -182,13 +184,54 @@ metadata:
   label:
     app: todo-db
 spec:
-  type: LoadBalancer
+  # Exposed externally via the Gateway API HTTPRoute below (path /app),
+  # not directly — no need for a LoadBalancer here.
+  type: ClusterIP
   ports:
     - port: 80
       targetPort: 3000
       name: web
   selector:
     app: todo-web
+
+---
+# Shared Gateway for the demo — lives alongside the Istio ingress gateway
+# deployment (namespace istio-ingress) and accepts HTTPRoutes attached from
+# any namespace.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: todo-gateway
+  namespace: todo-app
+spec:
+  gatewayClassName: istio
+  selector:
+    istio: ingressgateway 
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: todo-web-route
+  namespace: todo-app
+spec:
+  parentRefs:
+    - name: todo-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /app
+      backendRefs:
+        - name: todo-web-svc
+          port: 80
 
 
 ---

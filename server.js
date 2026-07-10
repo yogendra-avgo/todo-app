@@ -6,7 +6,13 @@ const metrics = require('./metrics');
 const app = express();
 const port = 3000;
 
-const TEAM_PLANNER_TEMPLATE = fs.readFileSync(path.join(__dirname, 'static', 'team-planner.html'), 'utf8');
+// BASE_PATH lets the app be reverse-proxied under a subpath (e.g. Gateway API
+// HTTPRoute serving it at /app) while probes/metrics scraping still hit the
+// pod directly at the root path.
+const BASE_PATH = (process.env.BASE_PATH || '').replace(/\/$/, '');
+
+const TEAM_PLANNER_TEMPLATE = fs.readFileSync(path.join(__dirname, 'static', 'team-planner.html'), 'utf8')
+  .replace(/(href|src|hx-post)="\//g, `$1="${BASE_PATH}/`);
 
 function logEvent(level, component, message, detail = '') {
   const timestamp = new Date().toISOString();
@@ -56,8 +62,8 @@ pool.query(SQL_CREATE)
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/css', express.static(path.join(__dirname, 'node_modules/@picocss/pico/css')));
-app.use('/js/htmx', express.static(path.join(__dirname, 'node_modules/htmx.org/dist')));
+app.use(`${BASE_PATH}/css`, express.static(path.join(__dirname, 'node_modules/@picocss/pico/css')));
+app.use(`${BASE_PATH}/js/htmx`, express.static(path.join(__dirname, 'node_modules/htmx.org/dist')));
 
 function recordHttpMetrics(req, res, durationMs) {
   const route = req.route ? req.route.path : req.path;
@@ -110,7 +116,7 @@ function renderTaskComponent(todo) {
           ${timeLabel}
         </div>
       </div>
-      <button hx-post="/api/todos/${todo.id}/toggle" 
+      <button hx-post="${BASE_PATH}/api/todos/${todo.id}/toggle"
               hx-target="#todo-list" 
               class="outline secondary action-btn">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
@@ -128,7 +134,11 @@ async function getRenderedTaskList() {
   return result.rows.map(row => renderTaskComponent(row)).join('');
 }
 
-app.get('/', async (req, res) => {
+// Always available at the root, unprefixed, so probes and Locust (hitting the
+// pod/Service directly) work regardless of BASE_PATH.
+app.get('/healthz', (req, res) => res.status(200).send('ok'));
+
+app.get(BASE_PATH ? [BASE_PATH, `${BASE_PATH}/`] : '/', async (req, res) => {
   try {
     const listHtml = await getRenderedTaskList();
     res.send(TEAM_PLANNER_TEMPLATE.replace('<!--TODO_LIST-->', listHtml));
@@ -137,7 +147,7 @@ app.get('/', async (req, res) => {
   }
 });
 
-app.post('/api/todos', async (req, res) => {
+app.post(`${BASE_PATH}/api/todos`, async (req, res) => {
   try {
     await pool.query('INSERT INTO todos (task) VALUES ($1)', [req.body.task]);
     metrics.incrementCounter('tasks_created_total');
@@ -148,7 +158,7 @@ app.post('/api/todos', async (req, res) => {
   }
 });
 
-app.post('/api/todos/:id/toggle', async (req, res) => {
+app.post(`${BASE_PATH}/api/todos/:id/toggle`, async (req, res) => {
   try {
     const result = await pool.query(
       'UPDATE todos SET is_completed = NOT is_completed, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING is_completed',
@@ -164,7 +174,7 @@ app.post('/api/todos/:id/toggle', async (req, res) => {
   }
 });
 
-app.post('/api/todos/seed', async (req, res) => {
+app.post(`${BASE_PATH}/api/todos/seed`, async (req, res) => {
   try {
     await pool.query('DROP TABLE todos;').catch(() => {});
     await pool.query(SQL_CREATE);
@@ -178,7 +188,7 @@ app.post('/api/todos/seed', async (req, res) => {
   }
 });
 
-app.post('/api/todos/clean', async (req, res) => {
+app.post(`${BASE_PATH}/api/todos/clean`, async (req, res) => {
   try {
     await pool.query('TRUNCATE TABLE todos;');
     res.status(200).send(await getRenderedTaskList());

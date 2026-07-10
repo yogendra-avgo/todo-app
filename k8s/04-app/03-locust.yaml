@@ -1,0 +1,128 @@
+---
+# ============================================================
+# Locust Load Generator — drives traffic against the todo-app
+# so that HTTP/task metrics flow into Prometheus for demo purposes.
+#
+# Locust lives in the same namespace as the app (todo-app) and talks to it
+# over the in-cluster Service DNS name directly, rather than through the
+# Gateway below, so load generation stays inside the mesh.
+#
+# The locust-scripts ConfigMap lives in ./locust-configmap.yaml — regenerate
+# it with ./update-locust-configmap.sh whenever locust/locustfile.py changes.
+#
+# The Gateway API resources here are for HUMAN browser access:
+#   /app     -> todo-web-svc (see HTTPRoute in ../03-app/app.yaml)
+#   /testing -> locust-svc   (Locust's own web UI, HTTPRoute below)
+# ============================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust
+  namespace: todo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust
+  template:
+    metadata:
+      labels:
+        app: locust
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: locust
+          image: harbor.mgmt.vks.lab/docker.io/locustio/locust:2.31.8
+          env:
+            # The app is reverse-proxied at /app in this cluster (see
+            # BASE_PATH on the todo-web deployment) — match it here so
+            # requests land on the app's registered routes.
+            - name: BASE_PATH
+              value: /app
+          args:
+            - "-f"
+            - "/mnt/locust/locustfile.py"
+            - "--host=http://todo-web-svc"
+            - "--web-host=0.0.0.0"
+            - "--web-base-path=/testing"
+            - "--autostart"
+            - "--users=10"
+            - "--spawn-rate=2"
+          ports:
+            - containerPort: 8089
+              name: web-ui
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: locust-scripts
+              mountPath: /mnt/locust
+          readinessProbe:
+            httpGet:
+              path: /testing/
+              port: 8089
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /testing/
+              port: 8089
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: locust-scripts
+          configMap:
+            name: locust-scripts
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-svc
+  namespace: todo-app
+  labels:
+    app: locust
+spec:
+  # Exposed externally via the Gateway API HTTPRoute below (path /testing).
+  type: ClusterIP
+  ports:
+    - port: 8089
+      targetPort: 8089
+      name: web-ui
+  selector:
+    app: locust
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: locust-route
+  namespace: todo-app
+spec:
+  parentRefs:
+    - name: todo-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /testing
+      backendRefs:
+        - name: locust-svc
+          port: 8089
