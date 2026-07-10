@@ -314,3 +314,15 @@ tasks:
             bucket: {{.BUCKET_NAME}}
             prefix: "manual-backups/"
         EOF
+  demo:setup:
+    desc: Setup demo clean all data, push V1
+    cmds:
+      - |
+        echo Setup v1
+  
+  demo:push-change:
+    desc: Setup demo clean all data, push V1
+    cmds:
+      - |
+        echo Setup v2
+  

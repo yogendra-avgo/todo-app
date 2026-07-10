@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/css/pico.min.css">
+  <script src="/js/htmx/htmx.min.js"></script>
+  <title>Shared Team Planner V2</title>
+  <style>
+    /* Layout Cleanups */
+    .main-wrapper { max-width: 1024px; padding-top: 2rem; }
+    .header-layout { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
+    .sub-title { color: #94a3b8; margin: 0; }
+    .button-group { display: flex; gap: 0.5rem; }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+    .btn-danger { border: none; }
+    .form-spacing { margin-bottom: 2rem; }
+    .section-heading { margin-bottom: 1rem; }
+
+    /* Card and Component Styles */
+    .todo-card { padding: 1rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+    .card-meta-layout { display: flex; flex-direction: column; gap: 0.25rem; }
+    .task-text { display: inline-flex; align-items: center; }
+    .line-through { text-decoration: line-through; color: #64748b; }
+    .status-icon { margin-right: 0.5rem; }
+    .icon-complete { stroke: #10b981; }
+    .icon-active { stroke: #38bdf8; }
+
+    /* Badges and Buttons */
+    .time-badge-container { display: flex; gap: 0.75rem; align-items: center; margin-left: 1.5rem; }
+    .time-stamp { font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+    .edited-stamp { color: #a1a1aa; }
+    .creation-stamp { color: #71717a; }
+    .action-btn { padding: 0.25rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto; display: inline-flex; align-items: center; gap: 0.25rem; }
+    .empty-placeholder { text-align: center; color: #64748b; padding: 2rem; border: 2px dashed #334155; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <main class="container main-wrapper">
+    <header class="header-layout">
+      <div>
+        <h2 class="section-heading">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Shared Team Planner
+        </h2>
+        <p class="sub-title">Collaborative workspace tracker</p>
+      </div>
+      <div class="button-group">
+        <button hx-post="/api/todos/seed" hx-target="#todo-list" class="contrast btn-sm">⚡ Generate Tasks</button>
+        <button hx-post="/api/todos/clean" hx-target="#todo-list" class="pico-background-red btn-sm btn-danger">🗑️ Clear List</button>
+      </div>
+    </header>
+
+    <form hx-post="/api/todos" hx-target="#todo-list" hx-on--after-request="this.reset()" class="form-spacing">
+      <fieldset role="group">
+        <input type="text" name="task" placeholder="Type a new item here..." required />
+        <input type="submit" value="Add Item" />
+      </fieldset>
+    </form>
+
+    <section>
+      <h4 class="section-heading">Items Needed</h4>
+      <div id="todo-list"><!--TODO_LIST--></div>
+    </section>
+  </main>
+</body>
+</html>

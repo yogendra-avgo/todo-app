@@ -1,8 +1,12 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { Pool } = require('pg');
+const metrics = require('./metrics');
 const app = express();
 const port = 3000;
+
+const TEAM_PLANNER_TEMPLATE = fs.readFileSync(path.join(__dirname, 'static', 'team-planner.html'), 'utf8');
 
 function logEvent(level, component, message, detail = '') {
   const timestamp = new Date().toISOString();
@@ -17,7 +21,10 @@ const pool = new Pool({
 });
 
 pool.on('connect', () => logEvent('debug', 'DATABASE', 'New client connection allocated by the pool'));
-pool.on('error', (err) => logEvent('error', 'DATABASE', 'Unexpected error on an idle pool client', err.message));
+pool.on('error', (err) => {
+  logEvent('error', 'DATABASE', 'Unexpected error on an idle pool client', err.message);
+  metrics.incrementCounter('db_errors_total');
+});
 
 const SAMPLE_TASKS = [
   'Review Q2 regional sales performance targets',
@@ -52,11 +59,25 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/css', express.static(path.join(__dirname, 'node_modules/@picocss/pico/css')));
 app.use('/js/htmx', express.static(path.join(__dirname, 'node_modules/htmx.org/dist')));
 
+function recordHttpMetrics(req, res, durationMs) {
+  const route = req.route ? req.route.path : req.path;
+  const requestLabels = { method: req.method, route, status: String(res.statusCode) };
+  metrics.incrementCounter('http_requests_total', requestLabels);
+  if (res.statusCode >= 500) {
+    metrics.incrementCounter('http_errors_total', requestLabels);
+  }
+
+  const durationLabels = { method: req.method, route };
+  metrics.incrementCounter('http_request_duration_seconds_sum', durationLabels, durationMs / 1000);
+  metrics.incrementCounter('http_request_duration_seconds_count', durationLabels);
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
     logEvent('info', 'HTTP', `${req.method} ${req.originalUrl} -> Status: ${res.statusCode} (${duration}ms)`);
+    recordHttpMetrics(req, res, duration);
   });
   next();
 });
@@ -110,75 +131,7 @@ async function getRenderedTaskList() {
 app.get('/', async (req, res) => {
   try {
     const listHtml = await getRenderedTaskList();
-    res.send(`
-      <!DOCTYPE html>
-      <html lang="en" data-theme="dark">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="stylesheet" href="/css/pico.min.css">
-        <script src="/js/htmx/htmx.min.js"></script>
-        <title>Shared Team Planner</title>
-        <style>
-          /* Layout Cleanups */
-          .main-wrapper { max-width: 1024px; padding-top: 2rem; }
-          .header-layout { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
-          .sub-title { color: #94a3b8; margin: 0; }
-          .button-group { display: flex; gap: 0.5rem; }
-          .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
-          .btn-danger { border: none; }
-          .form-spacing { margin-bottom: 2rem; }
-          .section-heading { margin-bottom: 1rem; }
-          
-          /* Card and Component Styles */
-          .todo-card { padding: 1rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
-          .card-meta-layout { display: flex; flex-direction: column; gap: 0.25rem; }
-          .task-text { display: inline-flex; align-items: center; }
-          .line-through { text-decoration: line-through; color: #64748b; }
-          .status-icon { margin-right: 0.5rem; }
-          .icon-complete { stroke: #10b981; }
-          .icon-active { stroke: #38bdf8; }
-          
-          /* Badges and Buttons */
-          .time-badge-container { display: flex; gap: 0.75rem; align-items: center; margin-left: 1.5rem; }
-          .time-stamp { font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.25rem; }
-          .edited-stamp { color: #a1a1aa; }
-          .creation-stamp { color: #71717a; }
-          .action-btn { padding: 0.25rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto; display: inline-flex; align-items: center; gap: 0.25rem; }
-          .empty-placeholder { text-align: center; color: #64748b; padding: 2rem; border: 2px dashed #334155; border-radius: 8px; }
-        </style>
-      </head>
-      <body>
-        <main class="container main-wrapper">
-          <header class="header-layout">
-            <div>
-              <h2 class="section-heading">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> 
-                Shared Team Planner
-              </h2>
-              <p class="sub-title">Collaborative workspace tracker</p>
-            </div>
-            <div class="button-group">
-              <button hx-post="/api/todos/seed" hx-target="#todo-list" class="contrast btn-sm">⚡ Generate Tasks</button>
-              <button hx-post="/api/todos/clean" hx-target="#todo-list" class="pico-background-red btn-sm btn-danger">🗑️ Clear List</button>
-            </div>
-          </header>
-          
-          <form hx-post="/api/todos" hx-target="#todo-list" hx-on--after-request="this.reset()" class="form-spacing">
-            <fieldset role="group">
-              <input type="text" name="task" placeholder="Type a new item here..." required />
-              <input type="submit" value="Add Item" />
-            </fieldset>
-          </form>
-
-          <section>
-            <h4 class="section-heading">Items Needed</h4>
-            <div id="todo-list">${listHtml}</div>
-          </section>
-        </main>
-      </body>
-      </html>
-    `);
+    res.send(TEAM_PLANNER_TEMPLATE.replace('<!--TODO_LIST-->', listHtml));
   } catch (err) {
     res.status(500).send("Something went wrong loading the planner.");
   }
@@ -187,17 +140,26 @@ app.get('/', async (req, res) => {
 app.post('/api/todos', async (req, res) => {
   try {
     await pool.query('INSERT INTO todos (task) VALUES ($1)', [req.body.task]);
+    metrics.incrementCounter('tasks_created_total');
     res.status(201).send(await getRenderedTaskList());
   } catch (err) {
+    metrics.incrementCounter('db_errors_total');
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/api/todos/:id/toggle', async (req, res) => {
   try {
-    await pool.query('UPDATE todos SET is_completed = NOT is_completed, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [req.params.id]);
+    const result = await pool.query(
+      'UPDATE todos SET is_completed = NOT is_completed, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING is_completed',
+      [req.params.id]
+    );
+    if (result.rows[0] && result.rows[0].is_completed) {
+      metrics.recordTaskCompleted();
+    }
     res.status(200).send(await getRenderedTaskList());
   } catch (err) {
+    metrics.incrementCounter('db_errors_total');
     res.status(500).json({ error: err.message });
   }
 });
@@ -208,8 +170,10 @@ app.post('/api/todos/seed', async (req, res) => {
     await pool.query(SQL_CREATE);
     const queries = SAMPLE_TASKS.map(task => pool.query('INSERT INTO todos (task) VALUES ($1)', [task]));
     await Promise.all(queries);
+    metrics.incrementCounter('tasks_created_total', null, SAMPLE_TASKS.length);
     res.status(201).send(await getRenderedTaskList());
   } catch (err) {
+    metrics.incrementCounter('db_errors_total');
     res.status(500).json({ error: err.message });
   }
 });
@@ -219,7 +183,28 @@ app.post('/api/todos/clean', async (req, res) => {
     await pool.query('TRUNCATE TABLE todos;');
     res.status(200).send(await getRenderedTaskList());
   } catch (err) {
+    metrics.incrementCounter('db_errors_total');
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/metrics', async (req, res) => {
+  try {
+    const counts = await pool.query(`
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE is_completed) AS complete,
+             COUNT(*) FILTER (WHERE NOT is_completed) AS incomplete
+      FROM todos
+    `);
+    metrics.setGauge('tasks_total', null, Number(counts.rows[0].total));
+    metrics.setGauge('tasks_complete', null, Number(counts.rows[0].complete));
+    metrics.setGauge('tasks_incomplete', null, Number(counts.rows[0].incomplete));
+
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(metrics.renderPrometheusText());
+  } catch (err) {
+    metrics.incrementCounter('db_errors_total');
+    res.status(500).send('# Failed to collect metrics\n');
   }
 });
 

@@ -9,7 +9,8 @@ RUN npm config set registry ${NPM_REGISTRY} && \
     npm install && \
     npm cache clean --force
 
-COPY server.js ./
+COPY server.js metrics.js ./
+COPY static ./static
 
 # --- Stage 2: Minimal Runtime ---
 FROM harbor.mgmt.vks.lab/docker.io/library/node:18-alpine
@@ -17,7 +18,8 @@ WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/server.js /app/metrics.js ./
+COPY --from=builder /app/static ./static
 
 EXPOSE 3000
 CMD ["node", "server.js"]
