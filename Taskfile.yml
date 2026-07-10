@@ -37,16 +37,13 @@ tasks:
     desc: Update ConfigMpa / locust-script
     cmds:
     - |
-      HEADER="# Generated from locust/locustfile.py — do not hand-edit the
-      # locustfile.py contents here, run update-locust-configmap.sh instead."
-
       {
-        echo "$HEADER"
+        echo "# Generated from locust/locustfile.py — do not hand-edit the # locustfile.py contents here, run update-locust-configmap.sh instead."
         kubectl create configmap locust-scripts \
-          --from-file=locustfile.py=../../locust/locustfile.py \
+          --from-file=locustfile.py=locust/locustfile.py \
           --namespace=todo-app \
           --dry-run=client -o yaml
-      } > k8s/04-app/locust-scripts.yaml locust-configmap.yaml
+      } > k8s/04-app/locust-scripts.yaml
 
       echo "Wrote  k8s/04-app/locust-scripts.yaml"
 
