@@ -37,8 +37,6 @@ spec:
       annotations:
         backup.velero.io/backup-volumes: db-storage
     spec:
-      imagePullSecrets:
-        - name: harbor-pull-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -46,7 +44,7 @@ spec:
         fsGroup: 999
       containers:
         - name: postgres
-          image: harbor.mgmt.vks.lab/docker.io/library/postgres:15-alpine
+          image: postgres:15-alpine
           env:
             - name: POSTGRES_USER
               value: postgres
@@ -131,8 +129,6 @@ spec:
       labels:
         app: todo-web
     spec:
-      imagePullSecrets:
-        - name: harbor-pull-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -140,7 +136,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: web
-          image: harbor.mgmt.vks.lab/demo/velero-test-app:latest
+          image: ghcr.io/yogendra-avgo/todo-app:latest
           env:
             - name: DATABASE_URL
               value: postgresql://postgres:postgres@todo-db-svc:5432/todo
