@@ -136,7 +136,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: web
-          image: ghcr.io/yogendra-avgo/todo-app:latest
+          image: ghcr.io/yogendra-avgo/todo-app:v2
           env:
             - name: DATABASE_URL
               value: postgresql://postgres:postgres@todo-db-svc:5432/todo
