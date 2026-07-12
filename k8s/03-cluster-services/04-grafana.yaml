@@ -50,15 +50,17 @@ spec:
             access: proxy
             url: http://prometheus-operated.tanzu-system-monitoring.svc:9090
             isDefault: true
-    # Auto-load dashboards from any ConfigMap labeled grafana_dashboard: "1"
-    # in this namespace — so adding another dashboard later is just a
-    # ConfigMap commit, no Helm values changes needed. The chart renders
-    # "dashboards" below into exactly that kind of ConfigMap itself.
+    # Auto-load dashboards from any ConfigMap labeled dashboard-provider: default
+    # in this namespace. That's the label the chart itself stamps on the
+    # ConfigMap it renders from "dashboards.default.*" below (verified against
+    # grafana-10.5.15 — it does NOT use the conventional grafana_dashboard: "1"
+    # label some docs describe). A dashboard added later via its own ConfigMap
+    # just needs the same label to be picked up, no Helm values changes needed.
     sidecar:
       dashboards:
         enabled: true
-        label: grafana_dashboard
-        labelValue: "1"
+        label: dashboard-provider
+        labelValue: default
     dashboards:
       default:
         todo-app-overview:
