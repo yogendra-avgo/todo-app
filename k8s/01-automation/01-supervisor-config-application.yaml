@@ -1,0 +1,27 @@
+---
+# ArgoCD Application for the supervisor-namespace addon config layer
+# (k8s/02-supervisor-config only): AddonInstall/AddonConfig objects that
+# provision the workload cluster's addons (headlamp, cert-manager,
+# prometheus, istio, velero, vault-injector). destination is supervisor,
+# not yr-lab — these CRDs are supervisor-side, they configure what gets
+# installed onto yr-lab, they don't run on it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: supervisor-config
+  namespace: yr-demos-7wcpt
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yogendra-avgo/todo-app.git
+    targetRevision: main
+    path: k8s/02-supervisor-config
+  destination:
+    name: supervisor
+    namespace: yr-demos-7wcpt
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

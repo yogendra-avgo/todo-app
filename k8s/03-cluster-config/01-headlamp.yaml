@@ -1,0 +1,50 @@
+## Headlamp RBAC
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-metrics-reader
+rules:
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-metrics-reader-binding
+subjects:
+- kind: ServiceAccount
+  name: headlamp
+  namespace: headlamp
+roleRef:
+  kind: ClusterRole
+  name: headlamp-metrics-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# TLS is disabled on headlamp itself (see tls.certManager.enabled: false in
+# the AddonConfig) — it's plain HTTP behind the mesh. TLS terminates at the
+# shared ingress gateway instead, not per-backend.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: headlamp-route
+  namespace: headlamp
+spec:
+  hosts:
+    - cluster-dashboard.wepositive.org
+  gateways:
+    - istio-ingress/shared-gateway
+  http:
+    - route:
+        - destination:
+            host: headlamp.headlamp.svc.cluster.local
+            port:
+              number: 80

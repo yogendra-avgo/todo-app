@@ -1,0 +1,29 @@
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: prometheus-yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  addonRef:
+    name: prometheus
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: yr-lab
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonConfig
+metadata:
+  annotations:
+    clusteraddon.addons.kubernetes.vmware.com/owned-for-deletion: "true"
+  name: yr-lab-prometheus
+  namespace: yr-demos-7wcpt
+spec:
+  values:
+    deploycomponents:
+      alertmanager: false
+      kube-state-metrics: true
+      node-exporter: true
+      prometheus: true
+      prometheus-operator: true
+      pushgateway: false

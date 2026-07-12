@@ -2,12 +2,11 @@
 # ArgoCD Application for the todo-app itself (k8s/04-app only).
 #
 # Deliberately kept separate from the platform layer (see
-# 03-cluster-services-application.yaml, which manages k8s/03-cluster-services)
+# 02-cluster-config-application.yaml, which manages k8s/03-cluster-config)
 # so app releases and platform changes don't share a blast radius. This
 # Application is what the CI/CD release loop re-syncs on every image bump
 # (see `task cd:bump-k8s-images`).
 #
-# Lives in the argocd namespace on the supervisor context (yr-demos-7wcpt),
 # targets the "yr-lab" cluster registered via `argocd cluster add` in
 # demo/PREPARE-CD.md.
 apiVersion: argoproj.io/v1alpha1

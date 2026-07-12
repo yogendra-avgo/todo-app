@@ -197,7 +197,7 @@ spec:
 
 ---
 # todo-web's route on the shared platform Gateway. The Gateway resource
-# itself lives in k8s/03-cluster-services (istio-ingress namespace) — it's
+# itself lives in k8s/03-cluster-config (istio-ingress namespace) — it's
 # shared platform infra, not owned by this app's Application.
 apiVersion: networking.istio.io/v1
 kind: VirtualService

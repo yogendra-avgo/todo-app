@@ -9,7 +9,7 @@
 #
 # Any app or service can attach a VirtualService to this Gateway via a
 # cross-namespace reference: gateways: ["istio-ingress/shared-gateway"].
-# Lives here (cluster-services) rather than in an app's own manifests
+# Lives here (cluster-config) rather than in an app's own manifests
 # because it's shared platform infra, not owned by any single app.
 apiVersion: networking.istio.io/v1
 kind: Gateway

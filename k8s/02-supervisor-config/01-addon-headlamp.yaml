@@ -1,0 +1,113 @@
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: headlamp-yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  addonRef:
+    name: headlamp
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: yr-lab
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonConfig
+metadata:
+  annotations:
+    clusteraddon.addons.kubernetes.vmware.com/owned-for-deletion: "true"
+  name: yr-lab-headlamp
+  namespace: yr-demos-7wcpt 
+spec:
+  values:
+    config:
+      extraArgs: []
+      pluginsDir: /headlamp-plugins
+      watchPlugins: false
+    createNamespace: true
+    # Not using the addon's own gateway provisioning: gatewayClassName: istio
+    # auto-provisions a dedicated Deployment+LoadBalancer per Gateway resource
+    # (confirmed earlier with todo-app's own gateway) — that would spin up a
+    # second LB instead of reusing the shared one. Exposed via our own
+    # VirtualService on istio-ingress/shared-gateway instead (see
+    # k8s/03-cluster-config/01-headlamp.yaml).
+    gatewayApi:
+      enabled: false
+      gateway:
+        className: istio
+        create: false
+        name: headlamp-gateway
+    hostname: cluster-dashboard.wepositive.org
+    image:
+      pullPolicy: IfNotPresent
+      repository: ""
+      tag: ""
+    installedAddons: []
+    logo:
+      altText: ""
+      url: ""
+    namespace: headlamp
+    nodeSelector:
+      kubernetes.io/os: linux
+    nsLimitRange:
+      defaultRequests:
+        cpu: 100m
+        memory: 128Mi
+    oidc:
+      callbackURL: ""
+      clientID: ""
+      clientSecret: ""
+      enabled: false
+      externalSecret:
+        enabled: false
+        name: ""
+      issuerURL: ""
+      scopes:
+        - openid
+        - email
+        - profile
+      secret:
+        create: true
+        name: headlamp-oidc
+      useCookie: false
+      usePKCE: false
+    pluginsManager:
+      configContent: ""
+      enabled: false
+      version: latest
+    priorityClassName: ""
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    # Plain HTTP — TLS terminates at the shared ingress gateway, not here.
+    # targetPort 4466 matches headlamp's own default listen port when TLS
+    # is disabled (confirmed against the live pod).
+    service:
+      port: 80
+      targetPort: 4466
+      type: ClusterIP
+    tls:
+      certManager:
+        certificate:
+          commonName: Headlamp CA
+          duration: 87600h
+          isCA: true
+          privateKey:
+            algorithm: RSA
+            encoding: PKCS1
+            size: 2048
+          renewBefore: 360h
+        enabled: false
+        issuer:
+          create: true
+          kind: Issuer
+          name: headlamp-issuer
+        secretName: headlamp-tls-cert
+      existingSecret: ""
+    tolerations: []

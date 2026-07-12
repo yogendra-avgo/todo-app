@@ -1,7 +1,8 @@
 ---
 # Grafana, deployed declaratively via the VKS helm-controller addon (real
 # FluxCD helm-controller + source-controller — already installed on this
-# cluster by the helm-controller AddonInstall in k8s/01-bootstrap/01-cluster.yaml).
+# cluster by the helm-controller AddonInstall in
+# k8s/02-supervisor-config/02-addon-helm-controller.yaml).
 #
 # Deliberately NOT using kube-prometheus-stack: Prometheus itself is already
 # hand-rolled with its own ServiceMonitors (see 02-prometheus.yaml) — this
@@ -63,6 +64,50 @@ spec:
         labelValue: default
     dashboards:
       default:
+        # Community dashboards pulled by gnetId at pod startup (chart's
+        # grafana-sc-dashboard init behavior) — no giant JSON blobs to
+        # hand-maintain here. Revisions pinned as of 2026-07; bump if a
+        # dashboard starts rendering broken/renamed panels.
+        kubernetes-global:
+          gnetId: 15757
+          revision: 43
+          datasource: Prometheus
+        kubernetes-nodes:
+          gnetId: 15759
+          revision: 40
+          datasource: Prometheus
+        kubernetes-namespaces:
+          gnetId: 15758
+          revision: 46
+          datasource: Prometheus
+        kubernetes-pods:
+          gnetId: 15760
+          revision: 39
+          datasource: Prometheus
+        node-exporter-full:
+          gnetId: 1860
+          revision: 45
+          datasource: Prometheus
+        docker-and-system-monitoring:
+          gnetId: 893
+          revision: 5
+          datasource: Prometheus
+        istio-mesh:
+          gnetId: 7639
+          revision: 315
+          datasource: Prometheus
+        istio-service:
+          gnetId: 7636
+          revision: 314
+          datasource: Prometheus
+        istio-workload:
+          gnetId: 7630
+          revision: 315
+          datasource: Prometheus
+        istio-control-plane:
+          gnetId: 7645
+          revision: 314
+          datasource: Prometheus
         todo-app-overview:
           json: |
             {

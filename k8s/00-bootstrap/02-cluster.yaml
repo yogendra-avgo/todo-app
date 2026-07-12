@@ -1,0 +1,51 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 192.168.156.0/20
+    services:
+      cidrBlocks:
+        - 10.96.0.0/12
+    serviceDomain: cluster.local
+  topology:
+    classRef:
+      name: builtin-generic-v3.7.0
+      namespace: vmware-system-vks-public
+    version: v1.35.5---vmware.1-vkr.1
+    variables:
+      - name: vmClass
+        value: best-effort-large
+      - name: storageClass
+        value: wkld01-cluster01-optimal-datastore-default-policy-autoraid
+      - name: vsphereOptions
+        value:
+          persistentVolumes:
+            availableStorageClasses:
+              - wkld01-cluster01-optimal-datastore-default-policy-autoraid
+            defaultStorageClass: >-
+              wkld01-cluster01-optimal-datastore-default-policy-autoraid-latebinding
+    controlPlane:
+      replicas: 1
+      metadata:
+        annotations:
+          run.tanzu.vmware.com/resolve-os-image: >-
+            os-name=ubuntu, content-library=cl-bab712043ac0065d3,
+            os-version=24.04
+    workers:
+      machineDeployments:
+        - class: node-pool
+          name: yr-lab-np-8nqj
+          metadata:
+            annotations:
+              cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: '5'
+              cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: '2'
+              run.tanzu.vmware.com/resolve-os-image: >-
+                os-name=ubuntu, content-library=cl-bab712043ac0065d3,
+                os-version=24.04
+

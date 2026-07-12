@@ -13,7 +13,7 @@
 #
 # The Istio VirtualService resources here are for HUMAN browser access,
 # routed by hostname on the shared platform Gateway (istio-ingress/shared-gateway,
-# defined in k8s/03-cluster-services — classic networking.istio.io
+# defined in k8s/03-cluster-config — classic networking.istio.io
 # Gateway/VirtualService API, not the Kubernetes Gateway API; see the comment
 # there for why):
 #   todo.wepositive.org    -> todo-web-svc (see VirtualService in 01-app.yaml)

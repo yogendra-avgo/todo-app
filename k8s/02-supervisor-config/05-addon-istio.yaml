@@ -1,0 +1,135 @@
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: istio-yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  addonRef:
+    name: istio
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: yr-lab
+---
+
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonConfig
+metadata:
+  annotations:
+    clusteraddon.addons.kubernetes.vmware.com/owned-for-deletion: "true"
+  name: yr-lab-istio
+  namespace: yr-demos-7wcpt 
+spec:
+  values:
+    istio:
+      ambientMode:
+        enabled: false
+        ztunnel:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+      enableGatewayAPIInference: false
+      enableStrictMTLS: true
+      gateways:
+        egress:
+          autoscaling:
+            enabled: false
+            maxReplicas: 5
+            minReplicas: 1
+          enabled: true
+          namespace: istio-egress
+          namespaceLimitRange:
+            defaultRequests:
+              cpu: 100m
+              memory: 128Mi
+          priorityClassName: ""
+          replicas: 1
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        ingress:
+          autoscaling:
+            enabled: true
+            maxReplicas: 5
+            minReplicas: 1
+          enabled: true
+          namespace: istio-ingress
+          namespaceLimitRange:
+            defaultRequests:
+              cpu: 100m
+              memory: 128Mi
+          priorityClassName: ""
+          replicas: 1
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      istioCNI:
+        enabled: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+      meshConfig:
+        accessLogFile: /dev/stdout
+        connectTimeout: 10s
+        enableDNSProxy: true
+        enablePrometheusMerge: true
+        enableTracing: true
+        externalIstiod: false
+        ingressControllerMode: STRICT
+        ingressSelector: ingressgateway
+        meshID: "yr-mesh"
+        meshMTLS:
+          minProtocolVersion: TLSV1_3
+        network: ""
+        proxy:
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        trustDomain: cluster.local
+        trustDomainAliases: []
+        waypoint:
+          resources:
+            limits:
+              cpu: "2"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      namespace: istio-system
+      namespaceLimitRange:
+        defaultRequests:
+          cpu: 100m
+          memory: 64Mi
+      pilot:
+        autoscaling:
+          enabled: false
+          maxReplicas: 5
+          minReplicas: 1
+        priorityClassName: ""
+        replicas: 2
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2048Mi
+      support:
+        priorityClassName: ""
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+

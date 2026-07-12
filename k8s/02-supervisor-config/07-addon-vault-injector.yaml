@@ -1,0 +1,14 @@
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: vault-injector-yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  addonRef:
+    name: vault-injector
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: yr-lab
+

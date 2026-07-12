@@ -1,0 +1,25 @@
+---
+# Root "App of Apps" — the only Application created by manual/external
+# bootstrap. Everything else (supervisor-config, cluster-config, todo-app)
+# is a child Application defined under k8s/01-automation and gets created
+# by this one syncing, not applied by hand.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: yr-lab-automation
+  namespace: yr-demos-7wcpt
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yogendra-avgo/todo-app.git
+    targetRevision: main
+    path: k8s/01-automation
+  destination:
+    name: supervisor
+    namespace: yr-demos-7wcpt
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

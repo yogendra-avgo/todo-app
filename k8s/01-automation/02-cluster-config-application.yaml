@@ -1,0 +1,32 @@
+---
+# ArgoCD Application for the workload-cluster-level services layer
+# (k8s/03-cluster-config only): headlamp RBAC/routing, Prometheus +
+# ServiceMonitors, Grafana (via the helm-controller addon's
+# HelmRepository/HelmRelease CRDs), and the shared Istio Gateway. Kept as its
+# own Application, separate from todo-app (see 03-todo-app-application.yaml),
+# so platform-layer changes and app-layer releases don't share a blast radius.
+#
+# destination is yr-lab (the workload cluster), NOT supervisor — this layer's
+# resources run on the workload cluster itself, unlike 01-supervisor-config-
+# application.yaml which manages supervisor-namespace AddonInstall/AddonConfig
+# objects.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-config
+  namespace: yr-demos-7wcpt
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yogendra-avgo/todo-app.git
+    targetRevision: main
+    path: k8s/03-cluster-config
+  destination:
+    name: yr-lab
+    namespace: tanzu-system-monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
