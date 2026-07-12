@@ -1,0 +1,48 @@
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: external-dns-yr-lab
+  namespace: yr-demos-7wcpt
+spec:
+  addonRef:
+    name: external-dns
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: yr-lab
+---
+# Watches our Istio classic Gateway/VirtualService resources (source names
+# istio-gateway / istio-virtualservice — the addon's own Cloudflare provider
+# just needs --provider=cloudflare + CF_API_TOKEN, no dedicated "cloudflare"
+# values block exists in this addon's schema, unlike aws/azure).
+#
+# CF_API_TOKEN comes from the "cloudflare-credentials" Secret — materialized
+# in the external-dns namespace by the sync Job in
+# k8s/03-cluster-config/05-cloudflare-secret-sync.yaml (bridges the Vault-backed
+# yr-cloudflare KeyValueSecret, which Vault Agent Injector can only write to a
+# file, not a real Secret object).
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonConfig
+metadata:
+  annotations:
+    clusteraddon.addons.kubernetes.vmware.com/owned-for-deletion: "true"
+  name: yr-lab-external-dns
+  namespace: yr-demos-7wcpt
+spec:
+  values:
+    namespace: external-dns
+    deployment:
+      args:
+        - --source=istio-gateway
+        - --source=istio-virtualservice
+        - --provider=cloudflare
+        - --domain-filter=wepositive.org
+        - --txt-owner-id=yr-lab
+        - --registry=txt
+      env:
+        - name: CF_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflare-credentials
+              key: CLOUDFLARE_API_TOKEN
