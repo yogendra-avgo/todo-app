@@ -633,3 +633,25 @@ spec:
     - port: syncer
       interval: 30s
       scheme: http
+
+---
+# Prometheus web UI, exposed on the shared platform Gateway. Routes to
+# prometheus-operated (the Operator-managed headless Service for the
+# Prometheus CR above), not the VKS addon's own separate prometheus-server —
+# this is the instance Grafana's datasource actually queries.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: prometheus-route
+  namespace: tanzu-system-monitoring
+spec:
+  hosts:
+    - prometheus.wepositive.org
+  gateways:
+    - istio-ingress/shared-gateway
+  http:
+    - route:
+        - destination:
+            host: prometheus-operated
+            port:
+              number: 9090
