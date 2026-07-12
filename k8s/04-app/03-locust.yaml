@@ -42,7 +42,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: locust
-          image: ghcr.io/yogendra-avgo/todo-app-locust:latest
+          image: ghcr.io/yogendra-avgo/todo-app-locust:v2
           args:
             - "-f"
             - "/mnt/locust/locustfile.py"
