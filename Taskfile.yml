@@ -458,3 +458,44 @@ tasks:
     desc: Generate and copy token for headlamp accessModes
     cmds:
       - kubectl create token --context cluster -n headlamp headlamp  --duration  2h | pbcopy
+
+  demo:dns-update:
+    desc: Upsert Cloudflare A records for headlamp/argocd LBs and the *.PUBLIC_DOMAIN wildcard ingress host
+    cmds:
+      - |
+        : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN env var is required}"
+        : "${CLOUDFLARE_ZONE_ID:?CLOUDFLARE_ZONE_ID env var is required}"
+        : "${PUBLIC_DOMAIN:?PUBLIC_DOMAIN env var is required}"
+
+        HEADLAMP_IP=$(kubectl --context=cluster -n headlamp get svc headlamp -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        ARGOCD_IP=$(kubectl --context=supervisor -n {{.SUPERVISOR_NS}} get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        GATEWAY_IP=$(kubectl --context=cluster -n istio-ingress get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+        upsert_record() {
+          name="$1"; ip="$2"
+          : "${ip:?could not resolve a LoadBalancer IP for ${name}}"
+          existing_id=$(curl -fsS \
+            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=A&name=${name}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+
+          if [ -n "$existing_id" ]; then
+            echo "Updating ${name} -> ${ip} (record ${existing_id})"
+            curl -fsS -X PUT \
+              "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${existing_id}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "{\"type\":\"A\",\"name\":\"${name}\",\"content\":\"${ip}\",\"ttl\":300,\"proxied\":false}" > /dev/null
+          else
+            echo "Creating ${name} -> ${ip}"
+            curl -fsS -X POST \
+              "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "{\"type\":\"A\",\"name\":\"${name}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" > /dev/null
+          fi
+        }
+
+        upsert_record "headlamp.${PUBLIC_DOMAIN}" "$HEADLAMP_IP"
+        upsert_record "argocd.${PUBLIC_DOMAIN}" "$ARGOCD_IP"
+        upsert_record "*.${PUBLIC_DOMAIN}" "$GATEWAY_IP"
