@@ -33,24 +33,26 @@ tasks:
           --push \
           --platform linux/amd64,linux/arm64 \
           --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
-          -t {{.FULL_IMAGE}} .
+          -t {{.FULL_IMAGE}} app/
         docker buildx build --builder corporate-builder  \
           --push \
           --platform linux/amd64,linux/arm64 \
           --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
-          -t {{.LOCUST_FULL_IMAGE}} locust/
-        
+          -t {{.LOCUST_FULL_IMAGE}} app/locust/
+
 
   # -----------------------------------------------------------------
-  # CI/CD TASKS (GitHub Actions: install, smoke test, build & push)
+  # CI TASKS (GitHub Actions ci.yml: install, smoke test — every
+  # push that touches app/**)
   # -----------------------------------------------------------------
 
-  cicd:install:
+  ci:install:
     desc: Install npm dependencies from the lockfile (CI)
     cmds:
       - npm ci
+    dir: app
 
-  cicd:smoke-test:
+  ci:smoke-test:
     desc: Build an amd64 image and verify it boots and answers /healthz against Postgres
     vars:
       SMOKE_NETWORK: todo-app-smoke-test
@@ -62,7 +64,7 @@ tasks:
           --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
           --cache-from type=gha,scope=smoke-test \
           --cache-to type=gha,mode=max,scope=smoke-test \
-          -t {{.SMOKE_IMAGE}} .
+          -t {{.SMOKE_IMAGE}} app/
       - docker network create {{.SMOKE_NETWORK}}
       - defer: docker network rm {{.SMOKE_NETWORK}}
       - docker run -d --name smoke-db --network {{.SMOKE_NETWORK}}
@@ -95,29 +97,34 @@ tasks:
           sleep 1
         done
 
-  cicd:build-push:
+  # -----------------------------------------------------------------
+  # CD TASKS (GitHub Actions release.yml: build, tag, push, and open
+  # a PR bumping the k8s manifests — only on a release tag)
+  # -----------------------------------------------------------------
+
+  cd:build-push:
     desc: Build the app's multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
     cmds:
-      - task: cicd:_build-push
+      - task: cd:_build-push
         vars:
-          BUILD_CONTEXT: "."
+          BUILD_CONTEXT: "app/"
           CACHE_SCOPE: release-app
           EXTRA_BUILD_ARGS: '--build-arg NPM_REGISTRY=${CI_NPM_REGISTRY:-https://registry.npmjs.org/}'
 
-  cicd:build-push-locust:
+  cd:build-push-locust:
     desc: Build the locust multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
     cmds:
-      - task: cicd:_build-push
+      - task: cd:_build-push
         vars:
-          BUILD_CONTEXT: "./locust"
+          BUILD_CONTEXT: "app/locust/"
           CACHE_SCOPE: release-locust
           EXTRA_BUILD_ARGS: ""
 
-  cicd:_build-push:
+  cd:_build-push:
     internal: true
     cmds:
       - |
-        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cicd:build-push CI_IMAGE_TAG=v1.2.3}"
+        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cd:build-push CI_IMAGE_TAG=v1.2.3}"
         : "${CI_REGISTRY_IMAGE:?CI_REGISTRY_IMAGE env var is required, e.g. ghcr.io/yogendra-avgo/todo-app}"
         docker buildx build --push \
           --platform linux/amd64,linux/arm64 \
@@ -128,11 +135,11 @@ tasks:
           -t "$CI_REGISTRY_IMAGE:latest" \
           {{.BUILD_CONTEXT}}
 
-  cicd:bump-k8s-images:
-    desc: Bump the k8s manifests' image tags to CI_IMAGE_TAG and open a PR (CI)
+  cd:bump-k8s-images:
+    desc: Bump the k8s manifests' image tags to CI_IMAGE_TAG and open a PR (CD)
     cmds:
       - |
-        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cicd:bump-k8s-images CI_IMAGE_TAG=v42}"
+        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cd:bump-k8s-images CI_IMAGE_TAG=v42}"
         BRANCH="bump-image-${CI_IMAGE_TAG}"
 
         sed -i "s#ghcr\.io/yogendra-avgo/todo-app:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app:${CI_IMAGE_TAG}#" k8s/04-app/01-app.yaml
@@ -447,4 +454,7 @@ tasks:
     cmds:
       - |
         echo Setup v2
-  
+  demo:headlamp-token:
+    desc: Generate and copy token for headlamp accessModes
+    cmds:
+      - kubectl create token --context cluster -n headlamp headlamp  --duration  2h | pbcopy

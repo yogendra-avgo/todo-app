@@ -7,9 +7,9 @@
 # over the in-cluster Service DNS name directly, rather than through the
 # Gateway below, so load generation stays inside the mesh.
 #
-# locustfile.py is baked into the image at build time (see locust/Dockerfile)
+# locustfile.py is baked into the image at build time (see app/locust/Dockerfile)
 # and published to ghcr.io/yogendra-avgo/todo-app-locust — rebuild/push a new
-# tag whenever locust/locustfile.py changes.
+# tag whenever app/locust/locustfile.py changes.
 #
 # The Gateway API resources here are for HUMAN browser access:
 #   /app     -> todo-web-svc (see HTTPRoute in ../03-app/app.yaml)

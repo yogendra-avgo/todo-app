@@ -1,6 +1,6 @@
 # Simple TODO App
 
-[![Test](https://github.com/yogendra-avgo/todo-app/actions/workflows/test.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/test.yml)
+[![CI](https://github.com/yogendra-avgo/todo-app/actions/workflows/ci.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/ci.yml)
 [![Release](https://github.com/yogendra-avgo/todo-app/actions/workflows/release.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/release.yml)
 [![Container: GHCR](https://img.shields.io/badge/ghcr.io-yogendra--avgo%2Ftodo--app-blue?logo=github)](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app)
 [![Node](https://img.shields.io/badge/node-18-339933?logo=node.js&logoColor=white)](https://nodejs.org)
@@ -17,11 +17,19 @@ testing with Locust, and Velero backup/DR.
 
 - CRUD todo list rendered server-side with [htmx](https://htmx.org/) (no client-side JS framework)
 - PostgreSQL-backed storage, with `/api/todos/seed` and `/api/todos/clean` helper endpoints for demos
-- `/healthz` liveness/readiness endpoint and a Prometheus `/metrics` endpoint (see `metrics.js`)
+- `/healthz` liveness/readiness endpoint and a Prometheus `/metrics` endpoint (see `app/metrics.js`)
 - Optional `BASE_PATH` env var so the app can be reverse-proxied under a subpath (e.g. behind a Gateway API route)
-- [Locust](https://locust.io/) load-testing setup (`locust/`) for generating traffic during demos
+- [Locust](https://locust.io/) load-testing setup (`app/locust/`) for generating traffic during demos
 - Kubernetes manifests (`k8s/`) covering namespace/app bootstrap, Istio Gateway/HTTPRoute, and Prometheus PodMonitor/ServiceMonitor
 - Velero backup/restore `task` commands for PROD → DR failover demos
+
+## Project Layout
+
+- `app/` — the buildable/publishable application source: the web app (`server.js`,
+  `metrics.js`, `static/`, `package.json`, `Dockerfile`) and `app/locust/` (its own
+  Dockerfile + `locustfile.py`). CI only triggers on changes under this directory.
+- `k8s/` — Kubernetes manifests, updated by a bot-opened PR after each release, not by CI.
+- `Taskfile.yml` — every dev/CI/CD command, runnable locally with `task <name>`.
 
 ## Tech Stack
 
@@ -53,29 +61,32 @@ task dev:reboot       # down + up
 The app is served at http://localhost:3000, backed by a local Postgres container.
 Useful data helpers: `task dev:show-data`, `task dev:clean-data`, `task dev:db-shell`.
 
-Run `task --list` to see every available task (dev, cicd, prod, dr, init).
+Run `task --list` to see every available task (dev, ci, cd, prod, dr, init).
 
 ## CI/CD
 
-Two workflows, backed by the `cicd:*` tasks in [`Taskfile.yml`](Taskfile.yml):
+Two workflows: one pure CI (`ci:*` tasks), one pure CD (`cd:*` tasks) — both defined in
+[`Taskfile.yml`](Taskfile.yml). CI only runs when `app/**` changes, so merging a PR that
+only touches `k8s/**` (e.g. the auto-bump PR below) never re-triggers a build/tag/release.
 
-**[`test.yml`](.github/workflows/test.yml)** — on every push:
-1. `smoke-test`: installs dependencies and runs `task cicd:smoke-test`, which builds the
+**[`ci.yml`](.github/workflows/ci.yml)** — on every push that touches `app/**`:
+1. `smoke-test`: installs dependencies and runs `task ci:smoke-test`, which builds the
    image and boots it against a throwaway Postgres container to verify `/healthz` responds.
 2. `tag-release` *(main only, after smoke-test passes)*: tags the commit `v<run number>`
    (e.g. `v42`) — a short, always-increasing, collision-free tag — pushes it, and dispatches
    `release.yml` for that tag.
 
 **[`release.yml`](.github/workflows/release.yml)** — on a pushed tag, or dispatched by
-`test.yml`:
+`ci.yml`:
 1. Builds & pushes multi-arch images to
    [`ghcr.io/yogendra-avgo/todo-app`](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app)
-   and `ghcr.io/yogendra-avgo/todo-app-locust`, tagged with the release tag and `latest`.
-2. Opens a PR (`task cicd:bump-k8s-images`) bumping the image tags in `k8s/04-app/*.yaml` to
+   and `ghcr.io/yogendra-avgo/todo-app-locust`, tagged with the release tag and `latest`,
+   using `task cd:build-push` / `task cd:build-push-locust`.
+2. Opens a PR (`task cd:bump-k8s-images`) bumping the image tags in `k8s/04-app/*.yaml` to
    the new release tag, for review before merging to production manifests.
 
-Merging to `main` is enough to cut a release — no manual tagging needed. To trigger a
-release for an existing commit by hand: `gh workflow run release.yml -f tag=v42`.
+Merging an `app/**` change to `main` is enough to cut a release — no manual tagging needed.
+To trigger a release for an existing commit by hand: `gh workflow run release.yml -f tag=v42`.
 
 ## Infra Setup
 
