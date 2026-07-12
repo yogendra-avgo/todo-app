@@ -41,20 +41,6 @@ tasks:
           -t {{.LOCUST_FULL_IMAGE}} locust/
         
 
-  dev:update-locust-script:
-    desc: Update ConfigMpa / locust-script
-    cmds:
-    - |
-      {
-        echo "# Generated from locust/locustfile.py — do not hand-edit the # locustfile.py contents here, run update-locust-configmap.sh instead."
-        kubectl create configmap locust-scripts \
-          --from-file=locustfile.py=locust/locustfile.py \
-          --namespace=todo-app \
-          --dry-run=client -o yaml
-      } > k8s/04-app/locust-scripts.yaml
-
-      echo "Wrote  k8s/04-app/locust-scripts.yaml"
-
   # -----------------------------------------------------------------
   # CI/CD TASKS (GitHub Actions: install, smoke test, build & push)
   # -----------------------------------------------------------------
@@ -110,20 +96,37 @@ tasks:
         done
 
   cicd:build-push:
-    desc: Build a multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
+    desc: Build the app's multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
+    cmds:
+      - task: cicd:_build-push
+        vars:
+          BUILD_CONTEXT: "."
+          CACHE_SCOPE: release-app
+          EXTRA_BUILD_ARGS: '--build-arg NPM_REGISTRY=${CI_NPM_REGISTRY:-https://registry.npmjs.org/}'
+
+  cicd:build-push-locust:
+    desc: Build the locust multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
+    cmds:
+      - task: cicd:_build-push
+        vars:
+          BUILD_CONTEXT: "./locust"
+          CACHE_SCOPE: release-locust
+          EXTRA_BUILD_ARGS: ""
+
+  cicd:_build-push:
+    internal: true
     cmds:
       - |
         : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cicd:build-push CI_IMAGE_TAG=v1.2.3}"
-        REGISTRY_IMAGE="${CI_REGISTRY_IMAGE:-ghcr.io/yogendra-avgo/todo-app}"
-        NPM_REGISTRY="${CI_NPM_REGISTRY:-https://registry.npmjs.org/}"
+        : "${CI_REGISTRY_IMAGE:?CI_REGISTRY_IMAGE env var is required, e.g. ghcr.io/yogendra-avgo/todo-app}"
         docker buildx build --push \
           --platform linux/amd64,linux/arm64 \
-          --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
-          --cache-from type=gha,scope=release \
-          --cache-to type=gha,mode=max,scope=release \
-          -t "$REGISTRY_IMAGE:$CI_IMAGE_TAG" \
-          -t "$REGISTRY_IMAGE:latest" \
-          .
+          {{.EXTRA_BUILD_ARGS}} \
+          --cache-from type=gha,scope={{.CACHE_SCOPE}} \
+          --cache-to type=gha,mode=max,scope={{.CACHE_SCOPE}} \
+          -t "$CI_REGISTRY_IMAGE:$CI_IMAGE_TAG" \
+          -t "$CI_REGISTRY_IMAGE:latest" \
+          {{.BUILD_CONTEXT}}
 
   # -----------------------------------------------------------------
   # OUTER LOOP TASKS (CI/CD, Push, and Cluster Initialization)

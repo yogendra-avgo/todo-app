@@ -7,8 +7,9 @@
 # over the in-cluster Service DNS name directly, rather than through the
 # Gateway below, so load generation stays inside the mesh.
 #
-# The locust-scripts ConfigMap lives in ./locust-configmap.yaml — regenerate
-# it with ./update-locust-configmap.sh whenever locust/locustfile.py changes.
+# locustfile.py is baked into the image at build time (see locust/Dockerfile)
+# and published to ghcr.io/yogendra-avgo/todo-app-locust — rebuild/push a new
+# tag whenever locust/locustfile.py changes.
 #
 # The Gateway API resources here are for HUMAN browser access:
 #   /app     -> todo-web-svc (see HTTPRoute in ../03-app/app.yaml)
@@ -38,7 +39,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: locust
-          image: locustio/locust:2.31.8
+          image: ghcr.io/yogendra-avgo/todo-app-locust:latest
           env:
             # The app is reverse-proxied at /app in this cluster (see
             # BASE_PATH on the todo-web deployment) — match it here so
@@ -71,9 +72,6 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-          volumeMounts:
-            - name: locust-scripts
-              mountPath: /mnt/locust
           readinessProbe:
             httpGet:
               path: /testing/
@@ -86,10 +84,6 @@ spec:
               port: 8089
             initialDelaySeconds: 10
             periodSeconds: 15
-      volumes:
-        - name: locust-scripts
-          configMap:
-            name: locust-scripts
 
 ---
 apiVersion: v1

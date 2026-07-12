@@ -49,8 +49,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push app image
         run: task cicd:build-push
         env:
           CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+          CI_IMAGE_TAG: ${{ github.ref_name }}
+
+      - name: Build and push locust image
+        run: task cicd:build-push-locust
+        env:
+          CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}-locust
           CI_IMAGE_TAG: ${{ github.ref_name }}
