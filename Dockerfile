@@ -1,19 +1,19 @@
 # --- Stage 1: Build & Dependencies ---
-FROM harbor.mgmt.vks.lab/docker.io/library/node:18-alpine AS builder
+FROM node:18-alpine AS builder
 WORKDIR /app
 
 ARG NPM_REGISTRY=https://registry.npmjs.org/
 COPY package.json ./
 
-RUN npm config set registry ${NPM_REGISTRY} && \
-    npm install && \
-    npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set registry ${NPM_REGISTRY} && \
+    npm install
 
 COPY server.js metrics.js ./
 COPY static ./static
 
 # --- Stage 2: Minimal Runtime ---
-FROM harbor.mgmt.vks.lab/docker.io/library/node:18-alpine
+FROM node:18-alpine
 WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
