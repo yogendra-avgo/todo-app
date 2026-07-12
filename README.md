@@ -1,6 +1,7 @@
 # Simple TODO App
 
-[![CI/CD](https://github.com/yogendra-avgo/todo-app/actions/workflows/ci.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/ci.yml)
+[![Test](https://github.com/yogendra-avgo/todo-app/actions/workflows/test.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/test.yml)
+[![Release](https://github.com/yogendra-avgo/todo-app/actions/workflows/release.yml/badge.svg)](https://github.com/yogendra-avgo/todo-app/actions/workflows/release.yml)
 [![Container: GHCR](https://img.shields.io/badge/ghcr.io-yogendra--avgo%2Ftodo--app-blue?logo=github)](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app)
 [![Node](https://img.shields.io/badge/node-18-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Express](https://img.shields.io/badge/express-4.x-000000?logo=express&logoColor=white)](https://expressjs.com/)
@@ -56,20 +57,25 @@ Run `task --list` to see every available task (dev, cicd, prod, dr, init).
 
 ## CI/CD
 
-Defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml), backed by the `cicd:*`
-tasks in [`Taskfile.yml`](Taskfile.yml):
+Two workflows, backed by the `cicd:*` tasks in [`Taskfile.yml`](Taskfile.yml):
 
-- **On every push** (`test` job): installs dependencies and runs `task cicd:smoke-test`,
-  which builds the image and boots it against a throwaway Postgres container to verify
-  `/healthz` responds.
-- **On a pushed git tag** (`build-and-push` job): builds a multi-arch image and pushes it to
-  [`ghcr.io/yogendra-avgo/todo-app`](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app),
-  tagged with the git tag and `latest`.
+**[`test.yml`](.github/workflows/test.yml)** — on every push:
+1. `smoke-test`: installs dependencies and runs `task cicd:smoke-test`, which builds the
+   image and boots it against a throwaway Postgres container to verify `/healthz` responds.
+2. `tag-release` *(main only, after smoke-test passes)*: tags the commit `v<run number>`
+   (e.g. `v42`) — a short, always-increasing, collision-free tag — pushes it, and dispatches
+   `release.yml` for that tag.
 
-```bash
-git tag v1.2.3
-git push origin v1.2.3   # triggers build-and-push → ghcr.io/yogendra-avgo/todo-app:v1.2.3
-```
+**[`release.yml`](.github/workflows/release.yml)** — on a pushed tag, or dispatched by
+`test.yml`:
+1. Builds & pushes multi-arch images to
+   [`ghcr.io/yogendra-avgo/todo-app`](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app)
+   and `ghcr.io/yogendra-avgo/todo-app-locust`, tagged with the release tag and `latest`.
+2. Opens a PR (`task cicd:bump-k8s-images`) bumping the image tags in `k8s/04-app/*.yaml` to
+   the new release tag, for review before merging to production manifests.
+
+Merging to `main` is enough to cut a release — no manual tagging needed. To trigger a
+release for an existing commit by hand: `gh workflow run release.yml -f tag=v42`.
 
 ## Infra Setup
 

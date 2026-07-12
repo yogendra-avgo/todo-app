@@ -1,38 +1,21 @@
-name: CI/CD
+name: Release
 
 on:
   push:
-    branches: ['**']
     tags: ['*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to build & release
+        required: true
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 jobs:
-  test:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: npm
-
-      - uses: arduino/setup-task@v2
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Install dependencies
-        run: task cicd:install
-
-      - name: Smoke test image
-        run: task cicd:smoke-test
-
   build-and-push:
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,14 +32,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve release tag
+        id: release
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push app image
         run: task cicd:build-push
         env:
           CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
-          CI_IMAGE_TAG: ${{ github.ref_name }}
+          CI_IMAGE_TAG: ${{ steps.release.outputs.tag }}
 
       - name: Build and push locust image
         run: task cicd:build-push-locust
         env:
           CI_REGISTRY_IMAGE: ghcr.io/${{ github.repository }}-locust
-          CI_IMAGE_TAG: ${{ github.ref_name }}
+          CI_IMAGE_TAG: ${{ steps.release.outputs.tag }}
+
+      - name: Open PR bumping k8s image tags
+        run: task cicd:bump-k8s-images
+        env:
+          CI_IMAGE_TAG: ${{ steps.release.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

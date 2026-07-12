@@ -128,6 +128,33 @@ tasks:
           -t "$CI_REGISTRY_IMAGE:latest" \
           {{.BUILD_CONTEXT}}
 
+  cicd:bump-k8s-images:
+    desc: Bump the k8s manifests' image tags to CI_IMAGE_TAG and open a PR (CI)
+    cmds:
+      - |
+        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cicd:bump-k8s-images CI_IMAGE_TAG=v42}"
+        BRANCH="bump-image-${CI_IMAGE_TAG}"
+
+        sed -i "s#ghcr\.io/yogendra-avgo/todo-app:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app:${CI_IMAGE_TAG}#" k8s/04-app/01-app.yaml
+        sed -i "s#ghcr\.io/yogendra-avgo/todo-app-locust:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app-locust:${CI_IMAGE_TAG}#" k8s/04-app/03-locust.yaml
+
+        if git diff --quiet -- k8s/04-app/01-app.yaml k8s/04-app/03-locust.yaml; then
+          echo "k8s image tags already at ${CI_IMAGE_TAG}, nothing to do"
+          exit 0
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git checkout -b "$BRANCH"
+        git add k8s/04-app/01-app.yaml k8s/04-app/03-locust.yaml
+        git commit -m "Bump todo-app images to ${CI_IMAGE_TAG}"
+        git push origin "$BRANCH"
+        gh pr create \
+          --title "Release ${CI_IMAGE_TAG}: bump k8s image tags" \
+          --body "Automated bump of the todo-app / todo-app-locust image tags to \`${CI_IMAGE_TAG}\` after a successful release build." \
+          --base main \
+          --head "$BRANCH"
+
   # -----------------------------------------------------------------
   # OUTER LOOP TASKS (CI/CD, Push, and Cluster Initialization)
   # -----------------------------------------------------------------
