@@ -26,16 +26,8 @@ spec:
         protocol: HTTP
       hosts:
         - "*.wepositive.org"
-    # TLS terminates here, not per-backend. Certificate comes from
-    # cert-manager via Cloudflare DNS-01 (see 06-cloudflare-clusterissuer.yaml)
-    # — credentialName is looked up in this Gateway's own namespace
-    # (istio-ingress), which is where that Certificate's secretName lands.
-    - port:
-        number: 443
-        name: https
-        protocol: HTTPS
-      tls:
-        mode: SIMPLE
-        credentialName: wepositive-wildcard-tls
-      hosts:
-        - "*.wepositive.org"
+    # HTTPS listener parked (see 06-cloudflare-clusterissuer.yaml) — the
+    # ClusterIssuer's DNS-01 propagation self-check queries Cloudflare's
+    # authoritative nameservers directly on port 53, which times out in this
+    # environment (looks like egress to arbitrary external IPs on 53 is
+    # firewalled). Re-add once that's resolved.

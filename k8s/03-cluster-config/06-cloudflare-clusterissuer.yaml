@@ -25,20 +25,26 @@ spec:
               name: cloudflare-credentials
               key: CLOUDFLARE_API_TOKEN
 
----
-# Output secret (wepositive-wildcard-tls) lands in istio-ingress because
-# that's where the shared Gateway's workload runs — Istio's SIMPLE TLS mode
-# looks up credentialName in the Gateway's own namespace.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: wepositive-wildcard
-  namespace: istio-ingress
-spec:
-  secretName: wepositive-wildcard-tls
-  issuerRef:
-    name: letsencrypt-cloudflare
-    kind: ClusterIssuer
-  dnsNames:
-    - "*.wepositive.org"
-    - "wepositive.org"
+
+# Certificate resource intentionally not created yet — DNS-01 auth against
+# Cloudflare is confirmed working (the TXT record gets created successfully),
+# but cert-manager's own propagation self-check queries Cloudflare's
+# authoritative nameservers directly on port 53, which times out here
+# (looks like egress to arbitrary external IPs on 53 is firewalled). A
+# Certificate referencing this ClusterIssuer would just retry the ACME
+# order forever. Re-add once port 53 egress (or an internal resolver
+# cert-manager can use instead) is sorted out:
+#
+# apiVersion: cert-manager.io/v1
+# kind: Certificate
+# metadata:
+#   name: wepositive-wildcard
+#   namespace: istio-ingress
+# spec:
+#   secretName: wepositive-wildcard-tls
+#   issuerRef:
+#     name: letsencrypt-cloudflare
+#     kind: ClusterIssuer
+#   dnsNames:
+#     - "*.wepositive.org"
+#     - "wepositive.org"
