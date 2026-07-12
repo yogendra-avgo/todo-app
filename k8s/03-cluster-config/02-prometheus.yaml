@@ -498,11 +498,17 @@ spec:
 # ── istio-ingressgateway ──────────────────────────────────────
 # The LoadBalancer Service does not expose port 15090. A headless
 # Service is required to reach the Envoy Prometheus stats endpoint.
+#
+# namespace is istio-ingress, NOT istio-system — this cluster's ingress
+# gateway is a separately-managed Deployment in istio-ingress (see the
+# todo-gateway comment in 01-app.yaml), not the addon-provisioned one. A
+# Service can only select pods in its own namespace, so this had silently
+# discovered zero endpoints when it lived in istio-system.
 apiVersion: v1
 kind: Service
 metadata:
   name: istio-ingressgateway-metrics
-  namespace: istio-system
+  namespace: istio-ingress
   labels:
     app: istio-ingressgateway
     app.kubernetes.io/name: istio-ingressgateway-metrics
@@ -527,7 +533,7 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - istio-system
+      - istio-ingress
   selector:
     matchLabels:
       app: istio-ingressgateway

@@ -1,0 +1,23 @@
+---
+# Copy to 04-creds.yaml (gitignored — never commit real values) and fill in
+# the real Cloudflare token/zone ID, then apply by hand on the supervisor
+# context. This is bootstrap, not GitOps-managed: it has to exist before
+# the cert-manager/external-dns sync Jobs in k8s/03-cluster-config can
+# authenticate to Vault and read it.
+#
+# Naming convention that matters: the secret name must be <cluster-name>-creds
+# (yr-lab-creds for this cluster) — that's what the SecretStoreRole/Policy
+# and the Vault KV path (secret/data/yr-demos-7wcpt/yr-lab-creds) are bound
+# to. A different name won't resolve, even with correct role/auth-path.
+apiVersion: secretstore.vmware.com/v1alpha1
+kind: KeyValueSecret
+metadata:
+  name: yr-lab-creds
+  namespace: yr-demos-7wcpt
+spec:
+  name: yr-lab-creds
+  data:
+    - key: CLOUDFLARE_API_TOKEN
+      value: "cf-...."
+    - key: CLOUDFLARE_ZONE_ID
+      value: "zone-...."

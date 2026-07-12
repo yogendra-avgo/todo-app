@@ -196,6 +196,30 @@ spec:
     app: todo-web
 
 ---
+# Mesh-wide PeerAuthentication is STRICT (see istio-system/default), but our
+# own Prometheus has no sidecar (tanzu-system-monitoring isn't meshed), so a
+# plaintext scrape of todo-web's /metrics on port 3000 gets reset by the
+# pod's sidecar. This exempts just that port to PERMISSIVE (accepts both
+# mTLS and plaintext) so Prometheus can scrape it directly — everything else
+# on this pod stays STRICT. Verified: without this, the ServiceMonitor's
+# target shows "connection reset by peer"; with it, `up{job="todo-web-svc"}`
+# reports 1 and the app's own custom metrics (tasks_total, etc.) are scraped.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: todo-web-metrics
+  namespace: todo-app
+spec:
+  selector:
+    matchLabels:
+      app: todo-web
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "3000":
+      mode: PERMISSIVE
+
+---
 # todo-web's route on the shared platform Gateway. The Gateway resource
 # itself lives in k8s/03-cluster-config (istio-ingress namespace) — it's
 # shared platform infra, not owned by this app's Application.

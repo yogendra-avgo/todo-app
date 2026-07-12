@@ -6,3 +6,4 @@ demo/*
 private/*
 secret/*
 *.secret
+k8s/00-bootstrap/04-creds.yaml
