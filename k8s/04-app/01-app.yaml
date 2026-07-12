@@ -178,7 +178,7 @@ metadata:
   labels:
     app: todo-web
 spec:
-  # Exposed externally via the Gateway API HTTPRoute below (hostname
+  # Exposed externally via the Istio VirtualService below (hostname
   # todo.wepositive.org), not directly — no need for a LoadBalancer here.
   type: ClusterIP
   ports:
@@ -192,45 +192,46 @@ spec:
     app: todo-web
 
 ---
-# Shared Gateway for the demo — lives alongside the Istio ingress gateway
-# deployment (namespace istio-ingress) and accepts HTTPRoutes attached from
-# any namespace.
-apiVersion: gateway.networking.k8s.io/v1
+# Shared Gateway for the demo — binds by pod selector to the existing,
+# self-managed istio-ingressgateway Deployment/Service (namespace
+# istio-ingress) rather than having Istio auto-provision a dedicated
+# Deployment+LoadBalancer per Gateway resource. That binding-by-selector
+# behavior only exists on the classic networking.istio.io Gateway/VirtualService
+# API, not on the Kubernetes Gateway API (Gateway/HTTPRoute) — hence the
+# classic API here instead.
+apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
   name: todo-gateway
   namespace: todo-app
 spec:
-  gatewayClassName: istio
   selector:
-    istio: ingressgateway 
-  listeners:
-    - name: http
-      port: 80
-      protocol: HTTP
-      allowedRoutes:
-        namespaces:
-          from: All
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*.wepositive.org"
 
 ---
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
+apiVersion: networking.istio.io/v1
+kind: VirtualService
 metadata:
   name: todo-web-route
   namespace: todo-app
 spec:
-  parentRefs:
-    - name: todo-gateway
-  hostnames:
+  hosts:
     - todo.wepositive.org
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: todo-web-svc
-          port: 80
+  gateways:
+    - todo-gateway
+  http:
+    - route:
+        - destination:
+            host: todo-web-svc
+            port:
+              number: 80
 
 
 ---

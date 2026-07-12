@@ -20,7 +20,7 @@ testing with Locust, and Velero backup/DR.
 - `/healthz` liveness/readiness endpoint and a Prometheus `/metrics` endpoint (see `app/metrics.js`)
 - Optional `BASE_PATH` env var so the app can be reverse-proxied under a subpath (e.g. behind a Gateway API route)
 - [Locust](https://locust.io/) load-testing setup (`app/locust/`) for generating traffic during demos
-- Kubernetes manifests (`k8s/`) covering namespace/app bootstrap, Istio Gateway/HTTPRoute, and Prometheus PodMonitor/ServiceMonitor
+- Kubernetes manifests (`k8s/`) covering namespace/app bootstrap, Istio Gateway/VirtualService, and Prometheus PodMonitor/ServiceMonitor
 - Velero backup/restore `task` commands for PROD → DR failover demos
 
 ## Project Layout
@@ -36,7 +36,7 @@ testing with Locust, and Velero backup/DR.
 - **App**: Node.js 18, Express, htmx, Pico CSS
 - **Database**: PostgreSQL 15
 - **Container**: Docker (multi-stage build), multi-arch (`linux/amd64`, `linux/arm64`)
-- **Orchestration**: Kubernetes, Istio Gateway API
+- **Orchestration**: Kubernetes, Istio Gateway/VirtualService
 - **Observability**: Prometheus (PodMonitor/ServiceMonitor)
 - **Backup/DR**: Velero
 - **CI/CD**: GitHub Actions + [go-task](https://taskfile.dev/) → [ghcr.io/yogendra-avgo/todo-app](https://github.com/yogendra-avgo/todo-app/pkgs/container/todo-app)

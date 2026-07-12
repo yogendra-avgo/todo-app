@@ -1,0 +1,31 @@
+---
+# ArgoCD Application for the todo-app itself (k8s/04-app only).
+#
+# Deliberately scoped to the app layer, not the platform layers
+# (01-bootstrap, 02-infra, 03-services) — those are ops-owned and applied
+# once; this Application is what the CI/CD release loop re-syncs on every
+# image bump (see `task cd:bump-k8s-images`).
+#
+# Lives in the argocd namespace on the supervisor context (yr-demos-7wcpt),
+# targets the "yr-lab" cluster registered via `argocd cluster add` in
+# demo/PREPARE-CD.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todo-app
+  namespace: yr-demos-7wcpt
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yogendra-avgo/todo-app.git
+    targetRevision: main
+    path: k8s/04-app
+  destination:
+    name: yr-lab
+    namespace: todo-app
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

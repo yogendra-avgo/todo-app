@@ -11,10 +11,12 @@
 # and published to ghcr.io/yogendra-avgo/todo-app-locust — rebuild/push a new
 # tag whenever app/locust/locustfile.py changes.
 #
-# The Gateway API resources here are for HUMAN browser access, routed by
-# hostname on the shared todo-gateway:
-#   todo.wepositive.org    -> todo-web-svc (see HTTPRoute in 01-app.yaml)
-#   testing.wepositive.org -> locust-svc   (Locust's own web UI, HTTPRoute below)
+# The Istio VirtualService resources here are for HUMAN browser access,
+# routed by hostname on the shared todo-gateway (classic networking.istio.io
+# Gateway/VirtualService API — see the comment on todo-gateway in 01-app.yaml
+# for why this isn't the Kubernetes Gateway API):
+#   todo.wepositive.org    -> todo-web-svc (see VirtualService in 01-app.yaml)
+#   testing.wepositive.org -> locust-svc   (Locust's own web UI, VirtualService below)
 # ============================================================
 
 ---
@@ -88,7 +90,7 @@ metadata:
   labels:
     app: locust
 spec:
-  # Exposed externally via the Gateway API HTTPRoute below (hostname
+  # Exposed externally via the Istio VirtualService below (hostname
   # testing.wepositive.org).
   type: ClusterIP
   ports:
@@ -99,21 +101,19 @@ spec:
     app: locust
 
 ---
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
+apiVersion: networking.istio.io/v1
+kind: VirtualService
 metadata:
   name: locust-route
   namespace: todo-app
 spec:
-  parentRefs:
-    - name: todo-gateway
-  hostnames:
+  hosts:
     - testing.wepositive.org
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - name: locust-svc
-          port: 8089
+  gateways:
+    - todo-gateway
+  http:
+    - route:
+        - destination:
+            host: locust-svc
+            port:
+              number: 8089

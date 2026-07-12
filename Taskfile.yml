@@ -52,6 +52,21 @@ tasks:
       - npm ci
     dir: app
 
+  ci:tag-release:
+    desc: Compute the next v<N> release tag from existing tags, create it, and push it (CI)
+    silent: true
+    cmds:
+      - |
+        git fetch --tags --force --quiet
+        LAST=$(git tag --list 'v[0-9]*' | sed 's/^v//' | sort -n | tail -1)
+        NEXT=$(( ${LAST:-0} + 1 ))
+        TAG="v${NEXT}"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag "$TAG"
+        git push origin "$TAG"
+        echo "$TAG"
+
   ci:smoke-test:
     desc: Build an amd64 image and verify it boots and answers /healthz against Postgres
     vars:

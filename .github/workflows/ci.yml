@@ -36,15 +36,16 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: arduino/setup-task@v2
 
       - name: Create and push release tag
         id: tag
         run: |
-          TAG="v${{ github.run_number }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
+          TAG=$(task ci:tag-release)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Trigger release workflow
