@@ -11,9 +11,10 @@
 # and published to ghcr.io/yogendra-avgo/todo-app-locust — rebuild/push a new
 # tag whenever app/locust/locustfile.py changes.
 #
-# The Gateway API resources here are for HUMAN browser access:
-#   /app     -> todo-web-svc (see HTTPRoute in ../03-app/app.yaml)
-#   /testing -> locust-svc   (Locust's own web UI, HTTPRoute below)
+# The Gateway API resources here are for HUMAN browser access, routed by
+# hostname on the shared todo-gateway:
+#   todo.wepositive.org    -> todo-web-svc (see HTTPRoute in 01-app.yaml)
+#   testing.wepositive.org -> locust-svc   (Locust's own web UI, HTTPRoute below)
 # ============================================================
 
 ---
@@ -40,18 +41,11 @@ spec:
       containers:
         - name: locust
           image: ghcr.io/yogendra-avgo/todo-app-locust:latest
-          env:
-            # The app is reverse-proxied at /app in this cluster (see
-            # BASE_PATH on the todo-web deployment) — match it here so
-            # requests land on the app's registered routes.
-            - name: BASE_PATH
-              value: /app
           args:
             - "-f"
             - "/mnt/locust/locustfile.py"
             - "--host=http://todo-web-svc"
             - "--web-host=0.0.0.0"
-            - "--web-base-path=/testing"
             - "--autostart"
             - "--users=10"
             - "--spawn-rate=2"
@@ -74,13 +68,13 @@ spec:
               memory: 256Mi
           readinessProbe:
             httpGet:
-              path: /testing/
+              path: /
               port: 8089
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /testing/
+              path: /
               port: 8089
             initialDelaySeconds: 10
             periodSeconds: 15
@@ -94,7 +88,8 @@ metadata:
   labels:
     app: locust
 spec:
-  # Exposed externally via the Gateway API HTTPRoute below (path /testing).
+  # Exposed externally via the Gateway API HTTPRoute below (hostname
+  # testing.wepositive.org).
   type: ClusterIP
   ports:
     - port: 8089
@@ -112,11 +107,13 @@ metadata:
 spec:
   parentRefs:
     - name: todo-gateway
+  hostnames:
+    - testing.wepositive.org
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /testing
+            value: /
       backendRefs:
         - name: locust-svc
           port: 8089
