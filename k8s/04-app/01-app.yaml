@@ -140,8 +140,6 @@ spec:
           env:
             - name: DATABASE_URL
               value: postgresql://postgres:postgres@todo-db-svc:5432/todo
-            - name: BASE_PATH
-              value: /app
           ports:
             - containerPort: 3000
           securityContext:
@@ -180,8 +178,8 @@ metadata:
   labels:
     app: todo-web
 spec:
-  # Exposed externally via the Gateway API HTTPRoute below (path /app),
-  # not directly — no need for a LoadBalancer here.
+  # Exposed externally via the Gateway API HTTPRoute below (hostname
+  # todo.wepositive.org), not directly — no need for a LoadBalancer here.
   type: ClusterIP
   ports:
     - port: 80
@@ -223,11 +221,13 @@ metadata:
 spec:
   parentRefs:
     - name: todo-gateway
+  hostnames:
+    - todo.wepositive.org
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /app
+            value: /
       backendRefs:
         - name: todo-web-svc
           port: 80
