@@ -1,0 +1,28 @@
+---
+# Shared platform Gateway — binds by pod selector to the existing,
+# self-managed istio-ingressgateway Deployment/Service (namespace
+# istio-ingress) rather than having Istio auto-provision a dedicated
+# Deployment+LoadBalancer per Gateway resource. That binding-by-selector
+# behavior only exists on the classic networking.istio.io Gateway/VirtualService
+# API, not on the Kubernetes Gateway API (Gateway/HTTPRoute) — hence the
+# classic API here instead.
+#
+# Any app or service can attach a VirtualService to this Gateway via a
+# cross-namespace reference: gateways: ["istio-ingress/shared-gateway"].
+# Lives here (cluster-services) rather than in an app's own manifests
+# because it's shared platform infra, not owned by any single app.
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: shared-gateway
+  namespace: istio-ingress
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*.wepositive.org"

@@ -1,0 +1,159 @@
+---
+# Grafana, deployed declaratively via the VKS helm-controller addon (real
+# FluxCD helm-controller + source-controller — already installed on this
+# cluster by the helm-controller AddonInstall in k8s/01-bootstrap/01-cluster.yaml).
+#
+# Deliberately NOT using kube-prometheus-stack: Prometheus itself is already
+# hand-rolled with its own ServiceMonitors (see 02-prometheus.yaml) — this
+# just adds Grafana on top, pointed at the existing Prometheus.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: tanzu-system-monitoring
+spec:
+  interval: 1h
+  url: https://grafana.github.io/helm-charts
+
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: tanzu-system-monitoring
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: grafana
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: tanzu-system-monitoring
+  values:
+    # Demo credential, intentionally plaintext here (matches the ArgoCD demo
+    # password) — this repo is public, so don't reuse this value anywhere
+    # that isn't a throwaway lab.
+    adminUser: admin
+    adminPassword: "VMware1!"
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: http://prometheus-operated.tanzu-system-monitoring.svc:9090
+            isDefault: true
+    # Auto-load dashboards from any ConfigMap labeled grafana_dashboard: "1"
+    # in this namespace — so adding another dashboard later is just a
+    # ConfigMap commit, no Helm values changes needed. The chart renders
+    # "dashboards" below into exactly that kind of ConfigMap itself.
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+    dashboards:
+      default:
+        todo-app-overview:
+          json: |
+            {
+              "title": "Todo App Overview",
+              "uid": "todo-app-overview",
+              "schemaVersion": 39,
+              "version": 1,
+              "editable": true,
+              "time": { "from": "now-1h", "to": "now" },
+              "refresh": "30s",
+              "panels": [
+                {
+                  "id": 1, "type": "stat", "title": "Tasks Total",
+                  "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+                  "targets": [ { "expr": "tasks_total", "legendFormat": "total" } ]
+                },
+                {
+                  "id": 2, "type": "stat", "title": "Tasks Complete",
+                  "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+                  "targets": [ { "expr": "tasks_complete", "legendFormat": "complete" } ]
+                },
+                {
+                  "id": 3, "type": "stat", "title": "Tasks Incomplete",
+                  "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+                  "targets": [ { "expr": "tasks_incomplete", "legendFormat": "incomplete" } ]
+                },
+                {
+                  "id": 4, "type": "stat", "title": "App Uptime",
+                  "fieldConfig": { "defaults": { "unit": "s" } },
+                  "gridPos": { "x": 0, "y": 4, "w": 12, "h": 4 },
+                  "targets": [ { "expr": "app_uptime_seconds", "legendFormat": "uptime" } ]
+                },
+                {
+                  "id": 5, "type": "stat", "title": "Memory (RSS)",
+                  "fieldConfig": { "defaults": { "unit": "bytes" } },
+                  "gridPos": { "x": 12, "y": 4, "w": 12, "h": 4 },
+                  "targets": [ { "expr": "process_resident_memory_bytes", "legendFormat": "rss" } ]
+                },
+                {
+                  "id": 6, "type": "timeseries", "title": "Task Throughput (5m rate)",
+                  "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+                  "targets": [
+                    { "expr": "rate(tasks_created_total[5m])", "legendFormat": "created" },
+                    { "expr": "rate(tasks_completed_total[5m])", "legendFormat": "completed" }
+                  ]
+                },
+                {
+                  "id": 7, "type": "timeseries", "title": "HTTP Request Rate by Route (5m)",
+                  "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+                  "targets": [
+                    { "expr": "sum(rate(http_requests_total[5m])) by (route)", "legendFormat": "{{route}}" }
+                  ]
+                },
+                {
+                  "id": 8, "type": "timeseries", "title": "HTTP Error Rate by Route (5m)",
+                  "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+                  "targets": [
+                    { "expr": "sum(rate(http_errors_total[5m])) by (route)", "legendFormat": "{{route}}" }
+                  ]
+                },
+                {
+                  "id": 9, "type": "timeseries", "title": "Avg HTTP Request Duration (5m)",
+                  "fieldConfig": { "defaults": { "unit": "s" } },
+                  "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+                  "targets": [
+                    {
+                      "expr": "sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m]))",
+                      "legendFormat": "avg duration"
+                    }
+                  ]
+                },
+                {
+                  "id": 10, "type": "stat", "title": "DB Errors (1h)",
+                  "gridPos": { "x": 0, "y": 32, "w": 24, "h": 4 },
+                  "targets": [ { "expr": "increase(db_errors_total[1h])", "legendFormat": "errors" } ]
+                }
+              ]
+            }
+
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: grafana-route
+  namespace: tanzu-system-monitoring
+spec:
+  hosts:
+    - grafana.wepositive.org
+  gateways:
+    - istio-ingress/shared-gateway
+  http:
+    - route:
+        - destination:
+            host: grafana
+            port:
+              number: 80

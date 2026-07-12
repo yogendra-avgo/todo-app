@@ -158,9 +158,9 @@ tasks:
         BRANCH="bump-image-${CI_IMAGE_TAG}"
 
         sed -i "s#ghcr\.io/yogendra-avgo/todo-app:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app:${CI_IMAGE_TAG}#" k8s/04-app/01-app.yaml
-        sed -i "s#ghcr\.io/yogendra-avgo/todo-app-locust:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app-locust:${CI_IMAGE_TAG}#" k8s/04-app/03-locust.yaml
+        sed -i "s#ghcr\.io/yogendra-avgo/todo-app-locust:[A-Za-z0-9._-]*#ghcr.io/yogendra-avgo/todo-app-locust:${CI_IMAGE_TAG}#" k8s/04-app/02-locust.yaml
 
-        if git diff --quiet -- k8s/04-app/01-app.yaml k8s/04-app/03-locust.yaml; then
+        if git diff --quiet -- k8s/04-app/01-app.yaml k8s/04-app/02-locust.yaml; then
           echo "k8s image tags already at ${CI_IMAGE_TAG}, nothing to do"
           exit 0
         fi
@@ -168,7 +168,7 @@ tasks:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git checkout -b "$BRANCH"
-        git add k8s/04-app/01-app.yaml k8s/04-app/03-locust.yaml
+        git add k8s/04-app/01-app.yaml k8s/04-app/02-locust.yaml
         git commit -m "Bump todo-app images to ${CI_IMAGE_TAG}"
         git push origin "$BRANCH"
         gh pr create \
@@ -507,7 +507,7 @@ tasks:
               "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
               -H "Content-Type: application/json" \
-              --data "{\"type\":\"A\",\"name\":\"${name}\",\"content\":\"${ip}\",\"ttl\":1Lets,\"proxied\":false}" > /dev/null
+              --data "{\"type\":\"A\",\"name\":\"${name}\",\"content\":\"${ip}\",\"ttl\":300,\"proxied\":false}" > /dev/null
           fi
         }
 

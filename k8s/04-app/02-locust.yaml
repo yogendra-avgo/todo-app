@@ -5,16 +5,17 @@
 #
 # Locust lives in the same namespace as the app (todo-app) and talks to it
 # over the in-cluster Service DNS name directly, rather than through the
-# Gateway below, so load generation stays inside the mesh.
+# shared Gateway, so load generation stays inside the mesh.
 #
 # locustfile.py is baked into the image at build time (see app/locust/Dockerfile)
 # and published to ghcr.io/yogendra-avgo/todo-app-locust — rebuild/push a new
 # tag whenever app/locust/locustfile.py changes.
 #
 # The Istio VirtualService resources here are for HUMAN browser access,
-# routed by hostname on the shared todo-gateway (classic networking.istio.io
-# Gateway/VirtualService API — see the comment on todo-gateway in 01-app.yaml
-# for why this isn't the Kubernetes Gateway API):
+# routed by hostname on the shared platform Gateway (istio-ingress/shared-gateway,
+# defined in k8s/03-cluster-services — classic networking.istio.io
+# Gateway/VirtualService API, not the Kubernetes Gateway API; see the comment
+# there for why):
 #   todo.wepositive.org    -> todo-web-svc (see VirtualService in 01-app.yaml)
 #   testing.wepositive.org -> locust-svc   (Locust's own web UI, VirtualService below)
 # ============================================================
@@ -112,7 +113,7 @@ spec:
   hosts:
     - testing.wepositive.org
   gateways:
-    - todo-gateway
+    - istio-ingress/shared-gateway
   http:
     - route:
         - destination:

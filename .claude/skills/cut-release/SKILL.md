@@ -24,9 +24,11 @@ smoke-test job passes on `main`, its `tag-release` job:
    `ghcr.io/yogendra-avgo/todo-app:v<N>` and `ghcr.io/yogendra-avgo/todo-app-locust:v<N>`
    (plus updating `:latest` on both).
 2. Opens a PR (`task cd:bump-k8s-images`) that bumps the image tags in
-   `k8s/04-app/01-app.yaml` and `k8s/04-app/03-locust.yaml` to `v<N>`.
-3. **That PR needs a human to review and merge** — it does not auto-merge. Nothing is
-   actually deployed to the cluster until this PR lands and whatever applies `k8s/` runs.
+   `k8s/04-app/01-app.yaml` and `k8s/04-app/02-locust.yaml` to `v<N>`.
+3. **That PR needs a human to review and merge** — it does not auto-merge. Once merged to
+   `main`, the `todo-app` ArgoCD Application (automated sync/prune, see
+   `k8s/02-supervisor-services/02-todo-app-application.yaml`) picks it up and deploys it —
+   no separate manual apply step.
 
 ## Manual path (release an arbitrary commit/tag without waiting for `main`)
 

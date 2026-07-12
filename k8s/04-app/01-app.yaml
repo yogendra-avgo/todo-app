@@ -196,30 +196,9 @@ spec:
     app: todo-web
 
 ---
-# Shared Gateway for the demo — binds by pod selector to the existing,
-# self-managed istio-ingressgateway Deployment/Service (namespace
-# istio-ingress) rather than having Istio auto-provision a dedicated
-# Deployment+LoadBalancer per Gateway resource. That binding-by-selector
-# behavior only exists on the classic networking.istio.io Gateway/VirtualService
-# API, not on the Kubernetes Gateway API (Gateway/HTTPRoute) — hence the
-# classic API here instead.
-apiVersion: networking.istio.io/v1
-kind: Gateway
-metadata:
-  name: todo-gateway
-  namespace: todo-app
-spec:
-  selector:
-    istio: ingressgateway
-  servers:
-    - port:
-        number: 80
-        name: http
-        protocol: HTTP
-      hosts:
-        - "*.wepositive.org"
-
----
+# todo-web's route on the shared platform Gateway. The Gateway resource
+# itself lives in k8s/03-cluster-services (istio-ingress namespace) — it's
+# shared platform infra, not owned by this app's Application.
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
@@ -229,7 +208,7 @@ spec:
   hosts:
     - todo.wepositive.org
   gateways:
-    - todo-gateway
+    - istio-ingress/shared-gateway
   http:
     - route:
         - destination:
