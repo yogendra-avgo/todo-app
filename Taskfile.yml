@@ -29,9 +29,17 @@ tasks:
     desc: Build the production container image with the Broadcom NPM proxy
     cmds:
       - |
-        docker build \
+        docker buildx build --builder corporate-builder \
+          --push \
+          --platform linux/amd64,linux/arm64 \
           --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
           -t {{.FULL_IMAGE}} .
+        docker buildx build --builder corporate-builder  \
+          --push \
+          --platform linux/amd64,linux/arm64 \
+          --build-arg NPM_REGISTRY="{{.NPM_PROXY}}" \
+          -t {{.LOCUST_FULL_IMAGE}} locust/
+        
 
   dev:update-locust-script:
     desc: Update ConfigMpa / locust-script
@@ -46,6 +54,76 @@ tasks:
       } > k8s/04-app/locust-scripts.yaml
 
       echo "Wrote  k8s/04-app/locust-scripts.yaml"
+
+  # -----------------------------------------------------------------
+  # CI/CD TASKS (GitHub Actions: install, smoke test, build & push)
+  # -----------------------------------------------------------------
+
+  cicd:install:
+    desc: Install npm dependencies from the lockfile (CI)
+    cmds:
+      - npm ci
+
+  cicd:smoke-test:
+    desc: Build an amd64 image and verify it boots and answers /healthz against Postgres
+    vars:
+      SMOKE_NETWORK: todo-app-smoke-test
+      SMOKE_IMAGE: todo-app:smoke-test
+    cmds:
+      - |
+        NPM_REGISTRY="${CI_NPM_REGISTRY:-https://registry.npmjs.org/}"
+        docker buildx build --load \
+          --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+          --cache-from type=gha,scope=smoke-test \
+          --cache-to type=gha,mode=max,scope=smoke-test \
+          -t {{.SMOKE_IMAGE}} .
+      - docker network create {{.SMOKE_NETWORK}}
+      - defer: docker network rm {{.SMOKE_NETWORK}}
+      - docker run -d --name smoke-db --network {{.SMOKE_NETWORK}}
+          -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=todo
+          postgres:15-alpine
+      - defer: docker rm -f smoke-db
+      - |
+        for i in $(seq 1 30); do
+          docker exec smoke-db pg_isready -U postgres -d todo && break
+          if [ "$i" -eq 30 ]; then
+            echo "Timed out waiting for postgres to become ready" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+      - docker run -d --name smoke-web --network {{.SMOKE_NETWORK}}
+          -e DATABASE_URL=postgresql://postgres:postgres@smoke-db:5432/todo
+          -p 3000:3000 {{.SMOKE_IMAGE}}
+      - defer: docker rm -f smoke-web
+      - |
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:3000/healthz > /dev/null; then
+            echo "Smoke test passed: /healthz is healthy."
+            exit 0
+          fi
+          if [ "$i" -eq 30 ]; then
+            echo "Timed out waiting for /healthz to respond" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+
+  cicd:build-push:
+    desc: Build a multi-arch (amd64/arm64) image tagged CI_IMAGE_TAG and push it to GHCR (+ latest)
+    cmds:
+      - |
+        : "${CI_IMAGE_TAG:?CI_IMAGE_TAG env var is required, e.g. task cicd:build-push CI_IMAGE_TAG=v1.2.3}"
+        REGISTRY_IMAGE="${CI_REGISTRY_IMAGE:-ghcr.io/yogendra-avgo/todo-app}"
+        NPM_REGISTRY="${CI_NPM_REGISTRY:-https://registry.npmjs.org/}"
+        docker buildx build --push \
+          --platform linux/amd64,linux/arm64 \
+          --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+          --cache-from type=gha,scope=release \
+          --cache-to type=gha,mode=max,scope=release \
+          -t "$REGISTRY_IMAGE:$CI_IMAGE_TAG" \
+          -t "$REGISTRY_IMAGE:latest" \
+          .
 
   # -----------------------------------------------------------------
   # OUTER LOOP TASKS (CI/CD, Push, and Cluster Initialization)
