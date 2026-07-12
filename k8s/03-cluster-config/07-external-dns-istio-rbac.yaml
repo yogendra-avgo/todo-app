@@ -1,0 +1,34 @@
+---
+# The external-dns addon (k8s/02-supervisor-config/08-addon-external-dns.yaml)
+# is configured with --source=istio-gateway/--source=istio-virtualservice,
+# but its default ClusterRole only grants networking.k8s.io (Kubernetes
+# Gateway API), not the classic networking.istio.io CRDs our shared Gateway
+# and VirtualServices actually use. Without this, external-dns's Gateway
+# informer hangs and it crashes: "failed to sync *v1.Gateway after 1m0s:
+# context deadline exceeded".
+#
+# Lives here (cluster-config, destination yr-lab), not alongside the addon
+# config in 02-supervisor-config — that layer's destination is the
+# supervisor, and this ClusterRole/Binding needs to exist on yr-lab, where
+# external-dns's ServiceAccount actually is.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-istio
+rules:
+  - apiGroups: ["networking.istio.io"]
+    resources: ["gateways", "virtualservices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-istio
+subjects:
+  - kind: ServiceAccount
+    name: external-dns
+    namespace: external-dns
+roleRef:
+  kind: ClusterRole
+  name: external-dns-istio
+  apiGroup: rbac.authorization.k8s.io
