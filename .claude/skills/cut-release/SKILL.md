@@ -27,7 +27,7 @@ smoke-test job passes on `main`, its `tag-release` job:
    `k8s/04-app/01-app.yaml` and `k8s/04-app/02-locust.yaml` to `v<N>`.
 3. **That PR needs a human to review and merge** — it does not auto-merge. Once merged to
    `main`, the `todo-app` ArgoCD Application (automated sync/prune, see
-   `k8s/02-supervisor-services/02-todo-app-application.yaml`) picks it up and deploys it —
+   `k8s/01-automation/03-todo-app-application.yaml`) picks it up and deploys it —
    no separate manual apply step.
 
 ## Manual path (release an arbitrary commit/tag without waiting for `main`)
