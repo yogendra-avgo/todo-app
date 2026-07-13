@@ -51,25 +51,25 @@ spec:
             access: proxy
             url: http://prometheus-operated.tanzu-system-monitoring.svc:9090
             isDefault: true
-    # Auto-load dashboards from any ConfigMap labeled dashboard-provider: default
-    # in this namespace. That's the label the chart itself stamps on the
-    # ConfigMap it renders from "dashboards.default.*" below (verified against
-    # grafana-10.5.15 — it does NOT use the conventional grafana_dashboard: "1"
-    # label some docs describe). A dashboard added later via its own ConfigMap
-    # just needs the same label to be picked up, no Helm values changes needed.
+    # The chart unconditionally mounts every `dashboards.default.*` entry that
+    # has a `json`/`file` key straight onto disk at
+    # /var/lib/grafana/dashboards/default/<key>.json (regardless of the
+    # sidecar setting below) — so the "default" file provider (dashboardProviders,
+    # below) already covers both the inline-JSON dashboard (todo-app-overview)
+    # and the gnetId-fetched community ones. The ConfigMap sidecar is NOT
+    # needed and must stay disabled: with it enabled, the same dashboard gets
+    # loaded twice (once via the sidecar's ConfigMap copy, once via the direct
+    # file mount), and Grafana refuses to write either provider's dashboards
+    # when it detects the resulting duplicate UID.
     sidecar:
       dashboards:
-        enabled: true
-        label: dashboard-provider
-        labelValue: default
-    # Separate from the sidecar above: gnetId-based entries under
-    # `dashboards.default.*` (below) are fetched by the chart's
-    # download-dashboards init container into /var/lib/grafana/dashboards/default
-    # on the pod's local filesystem — NOT into a ConfigMap, so the sidecar
-    # (which only watches ConfigMaps) never sees them. This provider is what
-    # actually tells Grafana to scan that directory. Without it, gnetId
-    # dashboards are downloaded but never loaded (verified: files present on
-    # disk, zero effect in the UI, until this was added).
+        enabled: false
+    # gnetId-based entries under `dashboards.default.*` (below) are fetched by
+    # the chart's download-dashboards init container into
+    # /var/lib/grafana/dashboards/default on the pod's local filesystem. This
+    # provider is what actually tells Grafana to scan that directory — without
+    # it, gnetId dashboards are downloaded but never loaded (verified: files
+    # present on disk, zero effect in the UI, until this was added).
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
