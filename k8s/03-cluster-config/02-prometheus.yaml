@@ -210,14 +210,18 @@ spec:
         - action: drop
           regex: container_spec.*
           sourceLabels: [__name__]
-        # Drop empty container entries (pause containers)
-        - action: drop
-          regex: .+
-          sourceLabels: [container]
-          targetLabel: __tmp_container
+        # Drop empty container entries (pause containers). action: drop never
+        # writes targetLabel (that's only for action: replace) — the previous
+        # two-rule version dropped every metric with a non-empty container
+        # label (i.e. all real per-container cAdvisor data) via the first
+        # rule, then dropped everything else too via the second, since
+        # __tmp_container was never actually set. Net effect: zero cAdvisor
+        # container metrics ever reached Prometheus. Confirmed via
+        # /api/v1/targets: the scrape itself was healthy (real samples
+        # scraped), the metrics were being silently deleted post-scrape.
         - action: drop
           regex: ""
-          sourceLabels: [__tmp_container]
+          sourceLabels: [container]
 ---
 # kube-state-metrics ServiceMonitor (VKS addon-managed)
 # The VKS addon deploys kube-state-metrics as Service "prometheus-kube-state-metrics"
