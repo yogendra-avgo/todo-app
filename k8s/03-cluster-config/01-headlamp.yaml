@@ -29,9 +29,26 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 
 ---
-# TLS is disabled on headlamp itself (see tls.certManager.enabled: false in
-# the AddonConfig) — it's plain HTTP behind the mesh. TLS terminates at the
-# shared ingress gateway instead, not per-backend.
+# headlamp always terminates TLS itself — the addon's chart hardcodes
+# -tls-cert-path/-tls-key-path container args regardless of
+# tls.certManager.enabled, there's no supported way to make it serve plain
+# HTTP (confirmed by inspecting the live container args). So the shared
+# gateway terminates TLS for the CLIENT, then re-encrypts to reach headlamp.
+# insecureSkipVerify because headlamp's own CA is self-signed and not in
+# Istio's trust store.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  host: headlamp.headlamp.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true
+
+---
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:

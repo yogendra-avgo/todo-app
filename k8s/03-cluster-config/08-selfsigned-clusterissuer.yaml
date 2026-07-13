@@ -1,0 +1,28 @@
+---
+# Self-signed wildcard cert for the shared gateway's HTTPS listener — a
+# stand-in for the Let's Encrypt cert in 06-cloudflare-clusterissuer.yaml,
+# which is parked (its DNS-01 propagation self-check can't reach port 53
+# here). Browsers will show a cert warning; that's expected for a private
+# lab/demo gateway. Swap the Gateway's credentialName to
+# wepositive-wildcard-tls once the Let's Encrypt cert is unparked — no other
+# changes needed.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wepositive-selfsigned
+  namespace: istio-ingress
+spec:
+  secretName: wepositive-selfsigned-tls
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.wepositive.org"
+    - "wepositive.org"

@@ -26,8 +26,16 @@ spec:
         protocol: HTTP
       hosts:
         - "*.wepositive.org"
-    # HTTPS listener parked (see 06-cloudflare-clusterissuer.yaml) — the
-    # ClusterIssuer's DNS-01 propagation self-check queries Cloudflare's
-    # authoritative nameservers directly on port 53, which times out in this
-    # environment (looks like egress to arbitrary external IPs on 53 is
-    # firewalled). Re-add once that's resolved.
+    # Self-signed cert for now (see 08-selfsigned-clusterissuer.yaml) — the
+    # Let's Encrypt cert in 06-cloudflare-clusterissuer.yaml is parked (its
+    # DNS-01 propagation self-check can't reach port 53 here). Swap
+    # credentialName to wepositive-wildcard-tls once that's unparked.
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: wepositive-selfsigned-tls
+      hosts:
+        - "*.wepositive.org"

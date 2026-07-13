@@ -105,9 +105,9 @@ spec:
           renewBefore: 360h
         enabled: false
         issuer:
-          create: true
-          kind: Issuer
-          name: headlamp-issuer
+          create: false
+          kind: ClusterIssuer
+          name: wepositive-selfsigned
         secretName: headlamp-tls-cert
       existingSecret: ""
     tolerations: []
