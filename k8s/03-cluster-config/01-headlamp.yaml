@@ -29,6 +29,26 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 
 ---
+# Full cluster-admin for the headlamp ServiceAccount — needed for headlamp
+# to view/manage arbitrary resources across all namespaces from its UI, not
+# just metrics. Access control is via whoever holds a valid token (OIDC is
+# disabled — see oidc.enabled in the AddonConfig — so it's token-based, not
+# per-user), meaning anyone with a token has full cluster-admin through the
+# headlamp UI. See `task demo:headlamp-token` for issuing one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: headlamp
+  namespace: headlamp
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+
+---
 # headlamp always terminates TLS itself — the addon's chart hardcodes
 # -tls-cert-path/-tls-key-path container args regardless of
 # tls.certManager.enabled, there's no supported way to make it serve plain
